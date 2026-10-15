@@ -1,6 +1,6 @@
 import type { Difficulty, GameRules } from '../sim/rules';
 import type { Command, PlayerCommand } from '../sim/types';
-import type { ClientMsg, ServerMsg, SlotInfo, SlotSetting } from './protocol';
+import { CHAT_HISTORY, type ChatMsg, type ClientMsg, type ServerMsg, type SlotInfo, type SlotSetting } from './protocol';
 import type { CommandTransport } from './transport';
 
 export type StartInfo = Extract<ServerMsg, { t: 'start' }>;
@@ -18,6 +18,8 @@ export class NetTransport implements CommandTransport {
   token = '';
   /** Highest tick whose bundle has arrived (every tick up to it is available). */
   latest = -1;
+  /** Chat lines so far, oldest first; kept here so they carry from the lobby into the game. */
+  chatLog: ChatMsg[] = [];
   /** Next tick the game loop will take. */
   private next = 0;
   private bundles = new Map<number, PlayerCommand[]>();
@@ -31,6 +33,8 @@ export class NetTransport implements CommandTransport {
   onStart?: (info: StartInfo) => void;
   onPresence?: (connected: boolean[]) => void;
   onDesync?: (tick: number) => void;
+  /** A new chat line, or null when the whole log was replaced on a (re)join (see chatLog). */
+  onChat?: (msg: ChatMsg | null) => void;
   onError?: (msg: string) => void;
   /** Connection lost (true) or restored (false). */
   onConnection?: (lost: boolean) => void;
@@ -71,6 +75,10 @@ export class NetTransport implements CommandTransport {
 
   start() {
     this.post({ t: 'start' });
+  }
+
+  chat(text: string, allies: boolean) {
+    this.post({ t: 'chat', text, allies });
   }
 
   close() {
@@ -167,6 +175,15 @@ export class NetTransport implements CommandTransport {
         break;
       case 'desync':
         this.onDesync?.(msg.tick);
+        break;
+      case 'chat':
+        this.chatLog.push(msg.msg);
+        if (this.chatLog.length > CHAT_HISTORY) this.chatLog.shift();
+        this.onChat?.(msg.msg);
+        break;
+      case 'chatLog':
+        this.chatLog = msg.msgs.slice(-CHAT_HISTORY);
+        this.onChat?.(null);
         break;
       case 'error':
         this.onError?.(msg.msg);

@@ -7,6 +7,7 @@ import { LocalTransport } from './net/local';
 import type { NetTransport, StartInfo } from './net/net';
 import { HASH_INTERVAL, type MatchPlayer } from './net/protocol';
 import type { CommandTransport } from './net/transport';
+import { TEAM } from './render/palette';
 import { Renderer } from './render/renderer';
 import { applyCommand } from './sim/commands';
 import { stateHash } from './sim/hash';
@@ -14,6 +15,7 @@ import type { GameRules } from './sim/rules';
 import { stepWorld } from './sim/step';
 import { TICK_MS, type Command, type World } from './sim/types';
 import { areAllies, createWorld } from './sim/world';
+import { ChatBox } from './ui/chat';
 import { Sidebar } from './ui/sidebar';
 
 const LOCAL_PLAYER = 0;
@@ -44,6 +46,8 @@ export class Game {
   readonly renderer: Renderer;
   readonly input: Input;
   readonly sidebar: Sidebar;
+  /** Online only. Lines sent in the lobby keep their lobby slot colour. */
+  readonly chat = new ChatBox('game', (m) => TEAM[m.player >= 0 ? m.player : m.slot]?.css ?? '');
   private net: NetTransport | null = null;
   private ais: AIController[] = [];
   private localConfig: { players: MatchPlayer[]; rules: GameRules } | null = null;
@@ -67,6 +71,7 @@ export class Game {
     this.renderer = new Renderer(app);
     this.input = new Input(viewport, this);
     this.sidebar = new Sidebar(sidebarEl, this);
+    viewport.append(this.chat.el);
     app.ticker.add((t) => this.frame(t.deltaMS));
     // Browsers stop animation frames in hidden tabs, and throttle timers to
     // about once a second. That's fine: each call runs every tick that is due.
@@ -88,6 +93,7 @@ export class Game {
     this.transport = transport;
     this.players = players;
     this.connected = this.players.map(() => true);
+    this.chat.show(false);
     const world = createWorld(seed, players.length, rules, players.map((p) => p.team), players.map((p) => p.difficulty));
     this.begin(world, LOCAL_PLAYER);
     this.ais = this.players.flatMap((p, id) => (p.ai ? [new AIController(id, transport)] : []));
@@ -104,6 +110,11 @@ export class Game {
     net.onDesync = (tick) => (this.desyncTick = tick);
     net.onConnection = (lost) => (this.connectionLost = lost);
     net.onError = (msg) => this.showOverlay('Disconnected', msg, [this.endButton()]);
+    this.chat.setMessages(net.chatLog);
+    this.chat.canAllies = info.players[info.you].team > 0;
+    this.chat.onSend = (text, allies) => net.chat(text, allies);
+    net.onChat = (msg) => (msg ? this.chat.add(msg) : this.chat.setMessages(net.chatLog));
+    this.chat.show(true);
     // Messages keep arriving in hidden tabs, so run the sim on them too.
     net.onMessage = () => {
       if (performance.now() - this.lastFrame > BACKGROUND_AFTER_MS) this.pump(BACKGROUND_BUDGET_MS);
@@ -130,6 +141,11 @@ export class Game {
     this.desyncTick = -1;
     this.overlayEl.hidden = true;
     this.centerOnBase();
+  }
+
+  /** Open the chat input (online only); `allies` sends to the own team only. */
+  openChat(allies: boolean) {
+    if (this.net) this.chat.open(allies);
   }
 
   send(cmd: Command) {
@@ -260,6 +276,8 @@ export class Game {
       label: 'Back to menu',
       action: () => {
         this.net?.close();
+        this.chat.show(false);
+        this.chat.clear();
         this.hooks.onExit(true);
       },
     };

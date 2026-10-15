@@ -3,13 +3,17 @@ import type { WebSocket } from 'ws';
 import { AIController } from '../src/ai/ai';
 import type { CommandTransport } from '../src/net/transport';
 import {
+  CHAT_HISTORY,
   HASH_INTERVAL,
+  MAX_CHAT,
+  cleanText,
   SLOT_COUNT,
   cleanCommand,
   isSlotSetting,
   isTeam,
   sideCount,
   isValidCommand,
+  type ChatMsg,
   type MatchPlayer,
   type ServerMsg,
   type SlotInfo,
@@ -25,6 +29,9 @@ import { createWorld } from '../src/sim/world';
 /** How many recent hashes the server keeps to compare against. */
 const HASH_HISTORY = 50;
 const MAX_NAME = 20;
+/** Chat rate limit: at most CHAT_BURST lines per CHAT_WINDOW_MS per seat. */
+const CHAT_BURST = 5;
+const CHAT_WINDOW_MS = 5000;
 
 interface Seat {
   kind: 'open' | 'ai' | 'closed' | 'human';
@@ -33,6 +40,8 @@ interface Seat {
   socket: WebSocket | null;
   team: number;
   difficulty: Difficulty;
+  /** When this seat's recent chat lines were sent, for the rate limit. */
+  chatTimes: number[];
 }
 
 /**
@@ -55,6 +64,8 @@ export class Room {
   private pending: PlayerCommand[] = [];
   private log: TickBundle[] = [];
   private hashes = new Map<number, number>();
+  /** Recent chat, with the sender's team at the time for allies-only lines. */
+  private chatLog: { msg: ChatMsg; team: number }[] = [];
   private timer: ReturnType<typeof setInterval> | null = null;
   /** Real time owed to the sim, in ms. */
   private acc = 0;
@@ -76,7 +87,7 @@ export class Room {
     const setup = Array.isArray(slots) && slots.length === SLOT_COUNT - 1 && slots.every(isSlotSetting) ? slots : null;
     for (let i = 0; i < SLOT_COUNT; i++) {
       const kind = i === 0 ? 'open' : (setup?.[i - 1] ?? (i === 1 ? 'ai' : 'open'));
-      this.seats.push({ kind, name: '', token: '', socket: null, team: 0, difficulty: 'normal' });
+      this.seats.push({ kind, name: '', token: '', socket: null, team: 0, difficulty: 'normal', chatTimes: [] });
     }
     if (Array.isArray(teams) && teams.length === SLOT_COUNT && teams.every(isTeam)) teams.forEach((t, i) => (this.seats[i].team = t));
     if (Array.isArray(difficulties) && difficulties.length === SLOT_COUNT && difficulties.every(isDifficulty)) {
@@ -117,6 +128,7 @@ export class Room {
       send(socket, this.startMsg(this.players.indexOf(slot)));
       this.broadcastPresence();
     }
+    send(socket, { t: 'chatLog', msgs: this.chatLog.filter((c) => this.canSee(slot, c)).map((c) => c.msg) });
   }
 
   detach(socket: WebSocket) {
@@ -143,7 +155,7 @@ export class Room {
       if (kind !== 'open') return;
       seat.socket?.close(4001, 'Removed by the host.');
     }
-    this.seats[index] = { kind, name: '', token: '', socket: null, team: seat.team, difficulty: seat.difficulty };
+    this.seats[index] = { kind, name: '', token: '', socket: null, team: seat.team, difficulty: seat.difficulty, chatTimes: [] };
     this.broadcastLobby();
   }
 
@@ -213,6 +225,30 @@ export class Room {
     const player = this.players.indexOf(from);
     if (player < 0) return;
     this.pending.push({ player, cmd: cleanCommand(cmd as Command) });
+  }
+
+  /** A chat line from a human seat. Allies-only lines need a team; extra lines over the rate limit are dropped. */
+  chat(from: number, text: unknown, allies: unknown) {
+    const seat = this.seats[from];
+    const clean = cleanText(text, MAX_CHAT);
+    if (seat?.kind !== 'human' || !clean) return;
+    if (allies === true && seat.team === 0) return;
+    const now = Date.now();
+    seat.chatTimes = seat.chatTimes.filter((t) => now - t < CHAT_WINDOW_MS);
+    if (seat.chatTimes.length >= CHAT_BURST) return;
+    seat.chatTimes.push(now);
+    const msg: ChatMsg = { slot: from, player: this.players.indexOf(from), name: seat.name, text: clean, allies: allies === true };
+    const entry = { msg, team: seat.team };
+    this.chatLog.push(entry);
+    if (this.chatLog.length > CHAT_HISTORY) this.chatLog.shift();
+    const data = JSON.stringify({ t: 'chat', msg } satisfies ServerMsg);
+    this.seats.forEach((s, i) => {
+      if (s.socket && s.socket.readyState === s.socket.OPEN && this.canSee(i, entry)) s.socket.send(data);
+    });
+  }
+
+  private canSee(slot: number, c: { msg: ChatMsg; team: number }): boolean {
+    return !c.msg.allies || this.seats[slot].team === c.team;
   }
 
   /** Compare a client's hash against ours; tell everyone on a mismatch. */
@@ -320,6 +356,5 @@ export function send(socket: WebSocket, msg: ServerMsg) {
 }
 
 function cleanName(name: unknown, slot: number): string {
-  const s = typeof name === 'string' ? name.replace(/[\u0000-\u001f]/g, '').trim().slice(0, MAX_NAME) : '';
-  return s || `Player ${slot + 1}`;
+  return cleanText(name, MAX_NAME) || `Player ${slot + 1}`;
 }

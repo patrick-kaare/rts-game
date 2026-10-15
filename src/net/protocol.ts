@@ -49,6 +49,25 @@ export interface MatchPlayer {
   difficulty: Difficulty;
 }
 
+/** A chat line. `player` is the sender's sim player id, or -1 when sent in the lobby. */
+export interface ChatMsg {
+  slot: number;
+  player: number;
+  name: string;
+  text: string;
+  /** Only the sender's team sees it. */
+  allies: boolean;
+}
+
+export const MAX_CHAT = 200;
+/** How many chat lines the server and clients keep. */
+export const CHAT_HISTORY = 50;
+
+/** Strip control characters and trim; '' for anything that isn't text. */
+export function cleanText(v: unknown, max: number): string {
+  return typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, max) : '';
+}
+
 /** Commands for one tick, as stored in a match log. Ticks with no commands are omitted. */
 export type TickBundle = [tick: number, cmds: PlayerCommand[]];
 
@@ -70,6 +89,7 @@ export type ClientMsg =
   | { t: 'rules'; rules: GameRules }
   | { t: 'start' }
   | { t: 'cmd'; cmd: Command }
+  | { t: 'chat'; text: string; allies: boolean }
   | { t: 'hash'; tick: number; hash: number };
 
 export type ServerMsg =
@@ -81,6 +101,9 @@ export type ServerMsg =
   /** Per sim player: is a human connected (AIs are always true). */
   | { t: 'presence'; connected: boolean[] }
   | { t: 'desync'; tick: number }
+  | { t: 'chat'; msg: ChatMsg }
+  /** Every chat line this seat may see; sent on every join and rejoin. */
+  | { t: 'chatLog'; msgs: ChatMsg[] }
   | { t: 'error'; msg: string };
 
 export const isSlotSetting = (v: unknown): v is SlotSetting => v === 'open' || v === 'ai' || v === 'closed';

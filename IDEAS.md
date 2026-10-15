@@ -35,7 +35,6 @@ Ordered roughly by how much each would improve play compared to the work involve
 - **AI personalities** such as rusher, turtle and economy-focused.
 
 ## Multiplayer
-- **Lobby chat and in-game chat**.
 - **Pings and map markers**.
 - **Spectator mode**.
 - **Replays**: the match log already exists, so this is mostly a playback viewer.

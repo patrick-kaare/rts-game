@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createServer, type GameServer } from '../server/index';
 import type { Room } from '../server/room';
 import { NetTransport, type StartInfo } from '../src/net/net';
-import { HASH_INTERVAL, type SlotInfo, type SlotSetting } from '../src/net/protocol';
+import { HASH_INTERVAL, MAX_CHAT, type SlotInfo, type SlotSetting } from '../src/net/protocol';
 import { DEFAULT_RULES, type Difficulty, type GameRules } from '../src/sim/rules';
 import { applyCommand } from '../src/sim/commands';
 import { stateHash } from '../src/sim/hash';
@@ -40,6 +40,11 @@ class Client {
   /** Host a new room. An empty slot setup gets the server's defaults (slot 1 AI, the rest open). */
   create(name: string, rules: GameRules = DEFAULT_RULES, slots: SlotSetting[] = [], teams: number[] = [], difficulties: Difficulty[] = []) {
     this.net.create(name, rules, slots, teams, difficulties);
+  }
+
+  /** Chat lines received so far, as "name: text" (allies lines get a "*"). */
+  get chat(): string[] {
+    return this.net.chatLog.map((m) => `${m.allies ? '*' : ''}${m.name}: ${m.text}`);
   }
 
   /** Run every tick that has arrived. */
@@ -322,5 +327,79 @@ describe('game server', () => {
     c.net.join(a.net.code, 'Late');
     await until(() => c.errors.length > 0);
     expect(c.errors[0]).toMatch(/started/);
+  });
+
+  it('relays lobby chat to everyone, cleaned up', async () => {
+    const a = client();
+    a.create('Alice');
+    await until(() => a.net.slot === 0);
+    const b = client();
+    b.net.join(a.net.code, 'Bob');
+    await until(() => a.lobby[2]?.name === 'Bob');
+    a.net.chat('  hi\u0001 there  ', false);
+    a.net.chat('   ', false);
+    // Alice has no team, so she can't talk to allies.
+    a.net.chat('nobody hears this', true);
+    b.net.chat('x'.repeat(300), false);
+    await until(() => a.chat.length === 2 && b.chat.length === 2);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(a.chat).toEqual(['Alice: hi there', `Bob: ${'x'.repeat(MAX_CHAT)}`]);
+    expect(b.net.chatLog.map((m) => [m.slot, m.player])).toEqual([
+      [0, -1],
+      [2, -1],
+    ]);
+  });
+
+  it('limits how fast one seat can chat', async () => {
+    const a = client();
+    a.create('Alice');
+    await until(() => a.net.slot === 0);
+    const b = client();
+    b.net.join(a.net.code, 'Bob');
+    await until(() => a.lobby[2]?.name === 'Bob');
+    for (let i = 0; i < 10; i++) a.net.chat(`spam ${i}`, false);
+    await until(() => b.chat.length === 5);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(b.chat).toEqual([0, 1, 2, 3, 4].map((i) => `Alice: spam ${i}`));
+  });
+
+  it('keeps allies chat within the team, also on rejoin, and out of the match log', async () => {
+    const a = client();
+    a.create('Alice', DEFAULT_RULES, ['open', 'open', 'closed', 'closed', 'closed', 'closed', 'closed', 'closed', 'closed'], [1, 1, 2, 0, 0, 0, 0, 0, 0, 0]);
+    await until(() => a.net.slot === 0);
+    const b = client();
+    b.net.join(a.net.code, 'Bob');
+    await until(() => a.lobby[1]?.kind === 'human');
+    const c = client();
+    c.net.join(a.net.code, 'Cleo');
+    await until(() => a.lobby[2]?.kind === 'human');
+    a.net.chat('hello all', false);
+    await until(() => c.chat.length === 1);
+    a.net.start();
+    await until(() => !!a.info && !!b.info && !!c.info);
+    const room = server.rooms.get(a.net.code)!;
+
+    a.net.chat('rush red', true);
+    c.net.chat('turtle up', true);
+    b.net.chat('gl hf', false);
+    await until(() => a.chat.length === 3 && b.chat.length === 3 && c.chat.length === 3);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(a.chat).toEqual(['Alice: hello all', '*Alice: rush red', 'Bob: gl hf']);
+    expect(b.chat).toEqual(a.chat);
+    expect(c.chat).toEqual(['Alice: hello all', '*Cleo: turtle up', 'Bob: gl hf']);
+    expect(a.net.chatLog[1].player).toBe(0);
+
+    // A rejoining seat gets the history it may see.
+    const token = c.net.token;
+    c.net.close();
+    const c2 = client();
+    c2.net.rejoin(a.net.code, token);
+    await until(() => !!c2.info && c2.chat.length === 3);
+    expect(c2.chat).toEqual(c.chat);
+
+    // Chat never touches the simulation.
+    await runTicks(room, 200, a, b);
+    expect(room['log']).toEqual([]);
+    expect(stateHash(a.world!)).toBe(room.serverHash);
   });
 });

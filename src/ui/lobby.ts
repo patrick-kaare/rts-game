@@ -15,6 +15,7 @@ import {
   type GameRules,
   type MapSizeRule,
 } from '../sim/rules';
+import { ChatBox } from './chat';
 
 export interface LobbyHooks {
   playLocal(seed: number, players: MatchPlayer[], rules: GameRules): void;
@@ -123,9 +124,13 @@ export class Lobby {
   private rules: GameRules = loadRules();
   /** The offline lobby while it is moving to the server, restored if that fails. */
   private pendingLocal: SlotInfo[] | null = null;
+  private boxEl: HTMLDivElement | null = null;
+  /** Online lobbies only. Lives outside the box, so re-rendering the box keeps the draft and focus. */
+  private chat = new ChatBox('lobby', (m) => TEAM[m.slot]?.css ?? '');
 
   constructor(private hooks: LobbyHooks) {
     this.el.id = 'lobby';
+    this.el.append(this.chat.el);
   }
 
   /** Show the menu, or go straight back into a game this browser has a seat in. */
@@ -149,6 +154,7 @@ export class Lobby {
     this.net?.close();
     this.net = null;
     this.pendingLocal = null;
+    this.chat.clear();
     setRoomInUrl(null);
     this.el.hidden = false;
     this.renderMenu('');
@@ -170,6 +176,9 @@ export class Lobby {
     this.net?.close();
     const net = new NetTransport(serverUrl());
     this.net = net;
+    this.chat.clear();
+    this.chat.onSend = (text, allies) => net.chat(text, allies);
+    net.onChat = (msg) => (msg ? this.chat.add(msg) : this.chat.setMessages(net.chatLog));
     net.onJoined = (code, _slot, token) => {
       this.pendingLocal = null;
       tokens.set(code, token);
@@ -177,10 +186,12 @@ export class Lobby {
     };
     net.onLobby = (slots, rules) => {
       this.slots = slots;
+      this.chat.canAllies = (slots[net.slot]?.team ?? 0) > 0;
       this.rules = rules;
       this.renderRoom();
     };
     net.onStart = (info) => {
+      net.onChat = undefined;
       this.hide();
       this.hooks.playOnline(net, info);
     };
@@ -207,6 +218,7 @@ export class Lobby {
 
   private renderMenu(code: string, error = '') {
     const box = this.box();
+    this.chat.show(false);
     const name = input('Your name', store.get(NAME_KEY) ?? '');
     name.maxLength = 20;
     name.addEventListener('change', () => store.set(NAME_KEY, name.value.trim()));
@@ -238,6 +250,7 @@ export class Lobby {
 
   private renderMessage(text: string) {
     const box = this.box();
+    this.chat.show(false);
     box.append(h('h1', 'Shape RTS'), p(text));
     box.append(row(button('Cancel', () => (this.pendingLocal ? this.stayLocal() : this.leave()), 'secondary')));
   }
@@ -290,6 +303,8 @@ export class Lobby {
     box.append(list);
 
     box.append(h('h2', 'Rules'), this.rulesPanel(isHost));
+    // Only online, next to the box. Left alone if already shown, so the input keeps its focus.
+    this.chat.show(!!net);
 
     const taken = this.slots.filter((s) => s.kind === 'human' || s.kind === 'ai');
     const oneSide = taken.length >= 2 && sideCount(taken.map((s) => s.team)) < 2;
@@ -438,11 +453,13 @@ export class Lobby {
     this.hooks.playLocal((Math.random() * 2 ** 31) | 0, players, { ...this.rules });
   }
 
+  /** A fresh, empty lobby box. */
   private box(): HTMLDivElement {
-    this.el.innerHTML = '';
+    this.boxEl?.remove();
     const box = document.createElement('div');
     box.className = 'lobby-box';
-    this.el.append(box);
+    this.el.prepend(box);
+    this.boxEl = box;
     return box;
   }
 }

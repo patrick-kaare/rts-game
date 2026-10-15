@@ -96,6 +96,9 @@ export function createServer(port: number, opts: ServerOptions = {}): Promise<Ga
         case 'cmd':
           room.command(slot, msg.cmd);
           break;
+        case 'chat':
+          room.chat(slot, msg.text, msg.allies);
+          break;
         case 'hash':
           room.checkHash(slot, msg.tick, msg.hash);
           break;

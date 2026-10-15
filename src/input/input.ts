@@ -106,9 +106,18 @@ export class Input {
    * Scrolling (arrows / WASD, see Camera.update) and control groups:
    * Ctrl or Shift + 1–9 saves the selection (browsers may keep Ctrl+digit for
    * tab switching, hence Shift), 1–9 recalls it, pressing it twice centers the view.
+   * Online, Enter opens the chat (Shift+Enter: allies only).
    */
   private onKey(ev: KeyboardEvent) {
     if (ev.target instanceof HTMLInputElement || ev.target instanceof HTMLSelectElement || !this.game.world) return;
+    if (ev.code === 'Enter' || ev.code === 'NumpadEnter') {
+      if (!this.game.online || ev.repeat) return;
+      ev.preventDefault();
+      // Stop scrolling while typing.
+      this.keys.clear();
+      this.game.openChat(ev.shiftKey);
+      return;
+    }
     const digit = /^Digit([1-9])$/.exec(ev.code);
     if (digit) {
       if (ev.altKey || ev.metaKey) return;
