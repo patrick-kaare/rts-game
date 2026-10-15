@@ -179,7 +179,7 @@ export class Renderer {
       const selected = state.selection.has(e.id);
       const r = e.type === 'rifleman' ? 8 : 15;
       if (selected) o.circle(x, y, r + 1).stroke({ width: 1.5, color: 0xffffff, alpha: 0.9 });
-      if (selected || e.hp < e.maxHp) this.healthBar(o, x - r, y - r - 6, r * 2, e.hp / e.maxHp);
+      if (selected || state.hovered === e.id) this.healthBar(o, x - r, y - r - 6, r * 2, e.hp / e.maxHp);
     }
 
     for (const e of world.entities.values()) {
@@ -192,7 +192,7 @@ export class Renderer {
       const h = e.h * TILE_PX;
       if (selected) this.brackets(o, x, y, w, h);
       if (selected && e.owner === me && e.rallyX >= 0) this.rallyLine(o, x + w / 2, y + h, e.rallyX, e.rallyY);
-      if (selected || e.hp < e.maxHp) this.healthBar(o, x + 4, y - 7, w - 8, e.hp / e.maxHp);
+      if (selected || state.hovered === e.id) this.healthBar(o, x + 4, y - 7, w - 8, e.hp / e.maxHp);
     }
 
     this.drawEffects(visible);

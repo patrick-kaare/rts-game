@@ -15,6 +15,8 @@ export interface ClientState {
   placing: BuildingType | null;
   /** Mouse position in viewport pixels. */
   mouse: { x: number; y: number; inside: boolean };
+  /** Entity under the mouse, refreshed each frame. */
+  hovered: number | null;
   /** Drag-select rectangle in viewport pixels. */
   drag: { x0: number; y0: number; x1: number; y1: number } | null;
 }
@@ -26,6 +28,7 @@ export function createClientState(localPlayer: number): ClientState {
     groups: new Map(),
     placing: null,
     mouse: { x: 0, y: 0, inside: false },
+    hovered: null,
     drag: null,
   };
 }

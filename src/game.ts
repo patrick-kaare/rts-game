@@ -175,6 +175,8 @@ export class Game {
     this.camera.update(dtMs, this.input.keys);
     this.pump(FRAME_BUDGET_MS);
     this.input.prune();
+    const st = this.state;
+    st.hovered = st.mouse.inside && !st.placing ? (this.input.pick(st.mouse)?.id ?? null) : null;
     const alpha = Math.min(1, this.acc / TICK_MS);
     this.renderer.render(alpha, this.state, this.camera);
     this.sidebar.update();
