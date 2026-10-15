@@ -1,10 +1,10 @@
 import { BUILDINGS } from './data/buildings';
+import { isPassable } from './data/terrain';
 import { UNITS } from './data/units';
 import { generateMap } from './map';
 import { DEFAULT_RULES, type Difficulty, type GameRules, type StartUnitsRule } from './rules';
 import {
   TILE,
-  Terrain,
   type BuildingType,
   type Entity,
   type Player,
@@ -40,10 +40,10 @@ export function createWorld(
   teams: number[] = [],
   difficulties: Difficulty[] = [],
 ): World {
-  const map = generateMap(seed, playerCount, rules.mapSize);
+  const map = generateMap(seed, playerCount, rules.mapSize, rules.terrain);
   const n = map.w * map.h;
   const blocked = new Uint8Array(n);
-  for (let i = 0; i < n; i++) blocked[i] = map.terrain[i] === Terrain.Grass ? 0 : 1;
+  for (let i = 0; i < n; i++) blocked[i] = isPassable(map.terrain[i]) ? 0 : 1;
 
   const world: World = {
     tick: 0,
@@ -177,7 +177,7 @@ export function removeEntity(world: World, e: Entity): void {
       for (let x = e.tx; x < e.tx + e.w; x++) {
         const i = y * world.w + x;
         world.buildingAt[i] = 0;
-        world.blocked[i] = world.terrain[i] === Terrain.Grass ? 0 : 1;
+        world.blocked[i] = isPassable(world.terrain[i]) ? 0 : 1;
       }
     }
   }

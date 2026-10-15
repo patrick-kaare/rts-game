@@ -1,5 +1,6 @@
 import { BUILD_GAP, BUILDINGS } from '../data/buildings';
-import { TILE, Terrain, type BuildingType, type World } from '../types';
+import { isBuildable } from '../data/terrain';
+import { TILE, type BuildingType, type World } from '../types';
 import { areAllies, inBounds } from '../world';
 
 /** Whether `owner` may place `type` with its top-left at (tx, ty). */
@@ -9,7 +10,7 @@ export function canPlace(world: World, owner: number, type: BuildingType, tx: nu
   for (let y = ty; y < ty + def.h; y++) {
     for (let x = tx; x < tx + def.w; x++) {
       const i = y * world.w + x;
-      if (world.terrain[i] !== Terrain.Grass || world.blocked[i]) return false;
+      if (!isBuildable(world.terrain[i]) || world.blocked[i]) return false;
     }
   }
   let near = false;
@@ -31,5 +32,5 @@ export function canPlace(world: World, owner: number, type: BuildingType, tx: nu
 export function tileBuildable(world: World, tx: number, ty: number): boolean {
   if (!inBounds(world, tx, ty)) return false;
   const i = ty * world.w + tx;
-  return world.terrain[i] === Terrain.Grass && !world.blocked[i];
+  return isBuildable(world.terrain[i]) && !world.blocked[i];
 }

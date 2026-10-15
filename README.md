@@ -13,13 +13,23 @@ npm run build
 ## Starting a game
 **New game** opens a lobby with 10 slots and the match rules. Set each slot to AI, Closed or Open, then press **Start**.
 
-- **Rules**: starting credits, fog of war (fog, map revealed, or no fog), map size (Auto picks one from the player count; sizes too small for the players are bumped up) and starting units. The host's last choice is remembered.
+- **Rules**: starting credits, fog of war (fog, map revealed, or no fog), map size (Auto picks one from the player count; sizes too small for the players are bumped up), terrain (see below) and starting units. The host's last choice is remembered.
 - **Teams**: each player or AI can be put on Team 1–5, or left with no team to play alone. The host can set every team; anyone else can change only their own. Teams are fixed once the match starts. Allies share vision, can't attack each other, and can build next to each other's buildings. A player is out once they have no buildings left, and the match ends when everyone still in it is on the same team. Start positions follow the slot order, so allies don't necessarily start next to each other.
 - As long as every slot is AI or Closed, the game runs entirely in the browser and no server is needed.
 - Setting a slot to **Open** moves the lobby to the game server (run both `npm run dev` and `npm run server`). You get a 4-letter code and an invite link; others use **Join** with the code or open the link. Open slots nobody joined are left out when the game starts.
 - **Chat**: online lobbies have a chat panel next to the slots, and the chat carries on in the match. Players on a team can also send to their allies only (the All/Allies button, or Tab in the input). The server keeps the last 50 lines, so a player who rejoins sees them again.
 
 There are no accounts. Each browser keeps a rejoin token for its seat, so closing the tab and opening the link again puts you back in the match. While a player is away the match keeps going: their base sits idle and can be attacked, and when they return their client replays the match log to catch up. The server's clock only stops when no human is connected at all. Rooms are deleted after 30 minutes with nobody connected, or 5 minutes after the match ends.
+
+## Terrain
+With **Terrain: Rivers, roads and forests** (the default), maps get:
+
+- **Cliffs** (grey rock): impassable. Each base sits behind an arc of cliffs facing the centre, with one gap towards the centre and one to the side, and more cliff ridges are scattered around the map.
+- **Rivers**: impassable water running from the map edge between neighbouring bases towards the centre. They're crossed by **bridges** where roads meet them, and by a ford at the contested ore field.
+- **Roads** link every base to the centre and, with 3 or more players, to its neighbours. Vehicles move 50% faster on roads and bridges, infantry 30%. Pathfinding prefers them when they're quicker.
+- **Forests** slow vehicles to half speed (infantry to 80%) and block sight: units see the edge of a forest but not past it, so a unit two tiles into a forest is hidden until enemies come close. Units only pick targets their team can see, which makes forests good for ambushes. With No fog, nothing is hidden.
+
+Buildings can go on grass and roads, but not in forest or on bridges. **Classic** keeps the older maps with rock and water blobs only.
 
 ## Controls
 - **LMB**: select / drag box (**Shift** adds; double-click selects all of that type on screen)

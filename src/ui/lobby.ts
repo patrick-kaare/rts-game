@@ -9,6 +9,7 @@ import {
   FOG_OPTIONS,
   MAP_SIZE_OPTIONS,
   START_UNITS_OPTIONS,
+  TERRAIN_OPTIONS,
   cleanRules,
   isValidRules,
   type Difficulty,
@@ -59,7 +60,9 @@ const session = storage('session');
 
 function loadRules(): GameRules {
   try {
-    const r: unknown = JSON.parse(store.get(RULES_KEY) ?? 'null');
+    const stored: unknown = JSON.parse(store.get(RULES_KEY) ?? 'null');
+    // Rules saved before a setting existed get its default.
+    const r: unknown = stored && typeof stored === 'object' ? { ...DEFAULT_RULES, ...stored } : stored;
     if (isValidRules(r)) return cleanRules(r);
   } catch {
     /* ignore */
@@ -69,6 +72,7 @@ function loadRules(): GameRules {
 
 const FOG_TEXT = { full: 'Fog of war', explored: 'Map revealed', off: 'No fog' };
 const START_UNITS_TEXT = { none: 'Construction yard only', squad: '2 riflemen', army: '4 riflemen, 2 tanks' };
+const TERRAIN_TEXT = { rich: 'Rivers, roads and forests', classic: 'Classic' };
 const MAP_SIZE_TEXT = { auto: 'Auto', small: 'Small', medium: 'Medium', large: 'Large', huge: 'Huge' };
 const SLOT_TEXT = { open: 'Open', ai: 'AI', closed: 'Closed' };
 const DIFFICULTY_TEXT = { easy: 'Easy', normal: 'Normal', hard: 'Hard' };
@@ -379,6 +383,7 @@ export class Lobby {
         (v) => (rules.mapSize = v as MapSizeRule),
         (v) => v !== 'auto' && mapSideFor(v as MapSizeRule, players) !== MAP_SIDES[v as Exclude<MapSizeRule, 'auto'>],
       ],
+      ['Terrain', TERRAIN_OPTIONS, rules.terrain, (v) => TERRAIN_TEXT[v as GameRules['terrain']], (v) => (rules.terrain = v as GameRules['terrain']), () => false],
       ['Units', START_UNITS_OPTIONS, rules.startUnits, (v) => START_UNITS_TEXT[v as GameRules['startUnits']], (v) => (rules.startUnits = v as GameRules['startUnits']), () => false],
     ];
     const grid = document.createElement('div');

@@ -1,3 +1,4 @@
+import { speedPct, type MoveClass } from '../data/terrain';
 import { findPath } from '../pathfinding';
 import { TILE, type Entity, type World } from '../types';
 import { tileOf, unitDef } from '../world';
@@ -6,7 +7,7 @@ import { tileOf, unitDef } from '../world';
 export function setPath(world: World, e: Entity, x: number, y: number): void {
   const start = tileOf(world, e.x, e.y);
   const goal = tileOf(world, x, y);
-  const path = findPath(world, start, goal);
+  const path = findPath(world, start, goal, unitDef(e).armor as MoveClass);
   if (path.length === 0) path.push(start);
   e.path = path;
   e.pathIdx = 0;
@@ -20,6 +21,12 @@ export function setPath(world: World, e: Entity, x: number, y: number): void {
     e.goalX = (last % world.w) * TILE + TILE / 2;
     e.goalY = Math.floor(last / world.w) * TILE + TILE / 2;
   }
+}
+
+/** Sub-tile units per tick on the terrain the unit is standing on. */
+export function unitSpeed(world: World, e: Entity): number {
+  const def = unitDef(e);
+  return Math.trunc((def.speed * speedPct(world.terrain[tileOf(world, e.x, e.y)], def.armor as MoveClass)) / 100);
 }
 
 export function clearPath(e: Entity): void {
@@ -38,7 +45,7 @@ export function isMoving(e: Entity): boolean {
  */
 export function followPath(world: World, e: Entity): boolean {
   if (!isMoving(e)) return true;
-  const def = unitDef(e);
+  const speed = unitSpeed(world, e);
   const isLast = e.pathIdx === e.path.length - 1;
   const node = e.path[e.pathIdx];
 
@@ -64,15 +71,15 @@ export function followPath(world: World, e: Entity): boolean {
     }
   }
 
-  if (d <= def.speed) {
+  if (d <= speed) {
     e.x = tx;
     e.y = ty;
     e.pathIdx++;
     if (e.pathIdx >= e.path.length) return arrive(e);
     return false;
   }
-  e.x += Math.trunc((dx * def.speed) / d);
-  e.y += Math.trunc((dy * def.speed) / d);
+  e.x += Math.trunc((dx * speed) / d);
+  e.y += Math.trunc((dy * speed) / d);
   e.fx = Math.trunc((dx * TILE) / d);
   e.fy = Math.trunc((dy * TILE) / d);
   return false;
@@ -134,7 +141,7 @@ export function separateUnits(world: World): void {
   for (const e of units) {
     if (!isMoving(e)) continue;
     const moved = Math.abs(e.x - e.px) + Math.abs(e.y - e.py);
-    if (moved * 3 < unitDef(e).speed) e.stuck++;
+    if (moved * 3 < unitSpeed(world, e)) e.stuck++;
     else if (e.stuck > 0) e.stuck--;
   }
 }

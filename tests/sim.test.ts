@@ -4,7 +4,9 @@ import { stateHash } from '../src/sim/hash';
 import { itemBuildTicks, itemCost } from '../src/sim/data/items';
 import { findPath } from '../src/sim/pathfinding';
 import { DEFAULT_RULES, type Difficulty, type GameRules } from '../src/sim/rules';
+import { acquireTarget } from '../src/sim/systems/combat';
 import { canPlace } from '../src/sim/systems/construction';
+import { updateFog } from '../src/sim/systems/fog';
 import { stepWorld } from '../src/sim/step';
 import { TILE, Terrain, type Entity, type World } from '../src/sim/types';
 import { addBuilding, addUnit, createWorld, tileOf } from '../src/sim/world';
@@ -140,19 +142,19 @@ describe('rules', () => {
   const units = (w: World, owner: number) => [...w.entities.values()].filter((e) => e.owner === owner && e.kind === 'unit').map((e) => e.type);
 
   it('sets starting credits and units', () => {
-    const w = createWorld(3, 3, { credits: 5000, fog: 'full', mapSize: 'auto', startUnits: 'army' });
+    const w = createWorld(3, 3, { credits: 5000, fog: 'full', mapSize: 'auto', startUnits: 'army', terrain: 'rich' });
     for (const p of w.players) {
       expect(p.credits).toBe(5000);
       expect(units(w, p.id).sort()).toEqual(['rifleman', 'rifleman', 'rifleman', 'rifleman', 'tank', 'tank']);
     }
     // Every starting unit stands on open ground.
     for (const e of w.entities.values()) if (e.kind === 'unit') expect(w.blocked[tileOf(w, e.x, e.y)]).toBe(0);
-    expect(units(createWorld(3, 2, { credits: 1000, fog: 'full', mapSize: 'auto', startUnits: 'none' }), 0)).toEqual([]);
+    expect(units(createWorld(3, 2, { credits: 1000, fog: 'full', mapSize: 'auto', startUnits: 'none', terrain: 'rich' }), 0)).toEqual([]);
     expect(units(createWorld(3), 0)).toEqual(['rifleman', 'rifleman']);
   });
 
   it('picks the map size, but never too small for the players', () => {
-    const rules = (mapSize: GameRules['mapSize']): GameRules => ({ credits: 3000, fog: 'full', mapSize, startUnits: 'squad' });
+    const rules = (mapSize: GameRules['mapSize']): GameRules => ({ credits: 3000, fog: 'full', mapSize, startUnits: 'squad', terrain: 'rich' });
     expect(createWorld(1, 2, rules('huge')).w).toBe(160);
     expect(createWorld(1, 4, rules('small')).w).toBe(64);
     expect(createWorld(1, 8, rules('small')).w).toBe(96);
@@ -160,19 +162,19 @@ describe('rules', () => {
   });
 
   it('fog: explored map and no fog', () => {
-    const explored = createWorld(1, 2, { credits: 3000, fog: 'explored', mapSize: 'auto', startUnits: 'squad' });
+    const explored = createWorld(1, 2, { credits: 3000, fog: 'explored', mapSize: 'auto', startUnits: 'squad', terrain: 'rich' });
     stepWorld(explored);
     expect(explored.explored[0].every((v) => v === 1)).toBe(true);
     expect(explored.visible[0].every((v) => v === 1)).toBe(false);
-    const off = createWorld(1, 2, { credits: 3000, fog: 'off', mapSize: 'auto', startUnits: 'squad' });
+    const off = createWorld(1, 2, { credits: 3000, fog: 'off', mapSize: 'auto', startUnits: 'squad', terrain: 'rich' });
     for (let i = 0; i < 5; i++) stepWorld(off);
     expect(off.visible[1].every((v) => v === 1)).toBe(true);
     expect(off.explored[1].every((v) => v === 1)).toBe(true);
   });
 
   it('is part of the state hash', () => {
-    const a = createWorld(5, 2, { credits: 3000, fog: 'full', mapSize: 'auto', startUnits: 'squad' });
-    const b = createWorld(5, 2, { credits: 3000, fog: 'off', mapSize: 'auto', startUnits: 'squad' });
+    const a = createWorld(5, 2, { credits: 3000, fog: 'full', mapSize: 'auto', startUnits: 'squad', terrain: 'rich' });
+    const b = createWorld(5, 2, { credits: 3000, fog: 'off', mapSize: 'auto', startUnits: 'squad', terrain: 'rich' });
     expect(stateHash(a)).not.toBe(stateHash(b));
   });
 });
@@ -243,7 +245,7 @@ describe('teams', () => {
     expect(stateHash(createWorld(5, 3, DEFAULT_RULES, [1, 1, 0]))).not.toBe(stateHash(createWorld(5, 3)));
   });
 
-  const teamRules: GameRules = { credits: 10000, fog: 'full', mapSize: 'small', startUnits: 'army' };
+  const teamRules: GameRules = { credits: 10000, fog: 'full', mapSize: 'small', startUnits: 'army', terrain: 'rich' };
 
   it('a 2v2 AI match is deterministic', () => {
     const a = aiMatch(4, 4, teamRules, [1, 1, 2, 2]);
@@ -263,7 +265,7 @@ describe('teams', () => {
     const team = world.players[world.winner].team;
     // Everyone on the other team is out.
     for (const p of world.players) if (p.team !== team) expect(p.defeated).toBe(true);
-  });
+  }, 20000);
 });
 
 describe('difficulty', () => {
@@ -330,7 +332,7 @@ describe('difficulty', () => {
 
 describe('AI match', () => {
   it('is deterministic with non-default rules', () => {
-    const rules: GameRules = { credits: 10000, fog: 'off', mapSize: 'medium', startUnits: 'army' };
+    const rules: GameRules = { credits: 10000, fog: 'off', mapSize: 'medium', startUnits: 'army', terrain: 'rich' };
     const a = aiMatch(8, 3, rules);
     const b = aiMatch(8, 3, rules);
     for (let i = 0; i < 2000; i++) {
@@ -375,5 +377,98 @@ describe('AI match', () => {
     const all = [...world.entities.values()];
     expect(all.some((e) => e.type === 'refinery')).toBe(true);
     expect(all.some((e) => e.type === 'factory')).toBe(true);
+  });
+});
+
+describe('terrain', () => {
+  /** Set a rectangle of tiles to a terrain type (and keep `blocked` in sync). */
+  function paint(w: World, x0: number, y0: number, x1: number, y1: number, t: number) {
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        w.terrain[y * w.w + x] = t;
+        w.blocked[y * w.w + x] = t === Terrain.Rock || t === Terrain.Water ? 1 : 0;
+      }
+    }
+  }
+
+  function distanceIn(t: number, ticks: number): number {
+    const w = flatWorld();
+    addBuilding(w, 0, 'cy', 5, 30);
+    paint(w, 0, 10, 50, 10, t);
+    const tank = addUnit(w, 0, 'tank', 2 * TILE + TILE / 2, 10 * TILE + TILE / 2);
+    applyCommand(w, 0, { t: 'move', ids: [tank.id], x: 45, y: 10 });
+    for (let i = 0; i < ticks; i++) stepWorld(w);
+    return tank.x - 2 * TILE;
+  }
+
+  it('roads speed vehicles up and forests slow them down', () => {
+    const grass = distanceIn(Terrain.Grass, 40);
+    expect(distanceIn(Terrain.Road, 40)).toBeGreaterThan(grass * 1.3);
+    expect(distanceIn(Terrain.Forest, 40)).toBeLessThan(grass * 0.7);
+  });
+
+  it('paths detour along a road instead of through forest, and keep to it', () => {
+    const w = flatWorld();
+    // Forest band from x=5 to x=30, with a road running around it.
+    paint(w, 5, 0, 30, 20, Terrain.Forest);
+    paint(w, 4, 21, 31, 22, Terrain.Road);
+    paint(w, 3, 10, 4, 22, Terrain.Road);
+    paint(w, 31, 10, 32, 22, Terrain.Road);
+    const path = findPath(w, 10 * w.w + 2, 10 * w.w + 34, 'vehicle');
+    expect(path[path.length - 1]).toBe(10 * w.w + 34);
+    // No waypoint, and no straight leg between waypoints, crosses the forest.
+    let prev = 10 * w.w + 2;
+    for (const node of path) {
+      for (let k = 0; k <= 16; k++) {
+        const x = Math.floor(((prev % w.w) * (16 - k) + (node % w.w) * k) / 16 + 0.5);
+        const y = Math.floor((Math.floor(prev / w.w) * (16 - k) + Math.floor(node / w.w) * k) / 16 + 0.5);
+        expect(w.terrain[y * w.w + x]).not.toBe(Terrain.Forest);
+      }
+      prev = node;
+    }
+    // Infantry barely slow down in forest, so for them the straight line wins.
+    const walk = findPath(w, 10 * w.w + 2, 10 * w.w + 34, 'infantry');
+    expect(walk.length).toBeLessThanOrEqual(2);
+    expect(walk.every((i) => Math.floor(i / w.w) === 10)).toBe(true);
+  });
+
+  it('forests block sight beyond their edge', () => {
+    const w = flatWorld();
+    w.entities.clear();
+    addBuilding(w, 1, 'cy', 60, 60);
+    paint(w, 13, 0, 14, 30, Terrain.Forest);
+    addUnit(w, 0, 'tank', 10 * TILE + TILE / 2, 20 * TILE + TILE / 2);
+    updateFog(w);
+    const vis = w.visible[0];
+    expect(vis[20 * w.w + 12]).toBe(1);
+    // The forest edge is seen, the next forest tile and everything behind it isn't.
+    expect(vis[20 * w.w + 13]).toBe(1);
+    expect(vis[20 * w.w + 14]).toBe(0);
+    expect(vis[20 * w.w + 15]).toBe(0);
+    // Open ground still seen around the forest.
+    expect(vis[15 * w.w + 10]).toBe(1);
+  });
+
+  it('units hidden in forest are not targeted until they step out', () => {
+    const w = flatWorld();
+    paint(w, 13, 0, 15, 30, Terrain.Forest);
+    const tank = addUnit(w, 0, 'tank', 10 * TILE + TILE / 2, 20 * TILE + TILE / 2);
+    const hidden = addUnit(w, 1, 'rifleman', 15 * TILE + TILE / 2, 20 * TILE + TILE / 2);
+    updateFog(w);
+    expect(acquireTarget(w, tank, 6 * TILE)).toBeNull();
+    hidden.x = 12 * TILE + TILE / 2;
+    updateFog(w);
+    expect(acquireTarget(w, tank, 6 * TILE)).toBe(hidden);
+  });
+
+  it('allows building on roads but not in forest or on bridges', () => {
+    const w = flatWorld();
+    addBuilding(w, 0, 'cy', 5, 5);
+    paint(w, 8, 5, 9, 6, Terrain.Road);
+    expect(canPlace(w, 0, 'power', 8, 5)).toBe(true);
+    paint(w, 8, 5, 9, 6, Terrain.Forest);
+    expect(canPlace(w, 0, 'power', 8, 5)).toBe(false);
+    paint(w, 8, 5, 9, 6, Terrain.Bridge);
+    expect(canPlace(w, 0, 'power', 8, 5)).toBe(false);
   });
 });

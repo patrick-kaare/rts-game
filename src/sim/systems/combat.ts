@@ -1,6 +1,6 @@
 import { DAMAGE_TABLE, type Weapon } from '../data/units';
 import { TILE, type Armor, type Entity, type World } from '../types';
-import { areAllies, distSqToEntity, removeEntity, unitDef } from '../world';
+import { areAllies, distSqToEntity, removeEntity, tileOf, unitDef } from '../world';
 import { aimAt, clearPath, followPath, isMoving, setPath } from './movement';
 
 export function armorOf(e: Entity): Armor {
@@ -21,16 +21,21 @@ export function inRange(e: Entity, t: Entity, weapon: Weapon): boolean {
   return distSqToEntity(e.x, e.y, t) <= r * r;
 }
 
-/** Find the best enemy within `radius` (armed units first, then nearest). */
+/**
+ * Find the best enemy within `radius` (armed units first, then nearest).
+ * Only enemies the team can see count, so units hidden in forest aren't picked.
+ */
 export function acquireTarget(world: World, e: Entity, radius: number): Entity | null {
   let best: Entity | null = null;
   let bestP = 99;
   let bestD = Infinity;
   const r2 = radius * radius;
+  const visible = world.visible[e.owner];
   for (const t of world.entities.values()) {
     if (areAllies(world, t.owner, e.owner)) continue;
     const d2 = distSqToEntity(e.x, e.y, t);
     if (d2 > r2) continue;
+    if (t.kind === 'unit' && !visible[tileOf(world, t.x, t.y)]) continue;
     const p = targetPriority(t);
     if (p < bestP || (p === bestP && d2 < bestD)) {
       best = t;

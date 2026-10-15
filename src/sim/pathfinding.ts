@@ -1,7 +1,34 @@
+import { TERRAIN, type MoveClass } from './data/terrain';
 import { TILE, type World } from './types';
 
 const STRAIGHT = 10;
 const DIAG = 14;
+
+interface CostTable {
+  /** Cost of a straight / diagonal step onto a tile, by terrain id. Grass is 10 / 14. */
+  straight: Int32Array;
+  diag: Int32Array;
+  /** Cheapest step costs on any terrain, so the heuristic never overestimates. */
+  minStraight: number;
+  minDiag: number;
+}
+
+function costTable(cls: MoveClass): CostTable {
+  const straight = new Int32Array(TERRAIN.length);
+  const diag = new Int32Array(TERRAIN.length);
+  let minStraight = STRAIGHT;
+  let minDiag = DIAG;
+  TERRAIN.forEach((t, i) => {
+    if (!t.passable) return;
+    straight[i] = Math.round((STRAIGHT * 100) / t.speed[cls]);
+    diag[i] = Math.round((straight[i] * DIAG) / STRAIGHT);
+    minStraight = Math.min(minStraight, straight[i]);
+    minDiag = Math.min(minDiag, diag[i]);
+  });
+  return { straight, diag, minStraight, minDiag };
+}
+
+const COSTS: Record<MoveClass, CostTable> = { infantry: costTable('infantry'), vehicle: costTable('vehicle') };
 
 // Reused buffers; a generation counter avoids clearing them every search.
 let cap = 0;
@@ -21,10 +48,10 @@ function ensure(n: number) {
   generation = 0;
 }
 
-function octile(ax: number, ay: number, bx: number, by: number): number {
+function octile(ax: number, ay: number, bx: number, by: number, straight = STRAIGHT, diag = DIAG): number {
   const dx = Math.abs(ax - bx);
   const dy = Math.abs(ay - by);
-  return STRAIGHT * Math.max(dx, dy) + (DIAG - STRAIGHT) * Math.min(dx, dy);
+  return straight * Math.max(dx, dy) + (diag - straight) * Math.min(dx, dy);
 }
 
 /** Binary min-heap of node indices keyed by (f, h, index) for deterministic ties. */
@@ -99,12 +126,16 @@ const DIRS = [
 ];
 
 /**
- * A* on the tile grid, 8-directional without corner cutting.
+ * A* on the tile grid, 8-directional without corner cutting, weighted by how
+ * fast `cls` units cross each terrain (roads are cheap, forest is dear).
  * Returns tile indices from the first step to the goal (start excluded).
  * If the goal is blocked or unreachable, returns a path to the closest reachable tile.
  */
-export function findPath(world: World, start: number, goal: number): number[] {
-  const { w, h, blocked } = world;
+export function findPath(world: World, start: number, goal: number, cls: MoveClass = 'vehicle'): number[] {
+  const { w, h, blocked, terrain } = world;
+  const costs = COSTS[cls];
+  const hs = costs.minStraight;
+  const hd = costs.minDiag;
   ensure(w * h);
   generation++;
   if (start === goal) return [];
@@ -121,7 +152,7 @@ export function findPath(world: World, start: number, goal: number): number[] {
   gScore[start] = 0;
   parent[start] = -1;
   seen[start] = generation;
-  const h0 = octile(sx, sy, gx, gy);
+  const h0 = octile(sx, sy, gx, gy, hs, hd);
   heap.push(start, h0, h0);
 
   let best = start;
@@ -137,7 +168,7 @@ export function findPath(world: World, start: number, goal: number): number[] {
     }
     const cx = cur % w;
     const cy = (cur / w) | 0;
-    const ch = octile(cx, cy, gx, gy);
+    const ch = octile(cx, cy, gx, gy, hs, hd);
     if (ch < bestH) {
       bestH = ch;
       best = cur;
@@ -150,12 +181,12 @@ export function findPath(world: World, start: number, goal: number): number[] {
       if (blocked[ni] || closed[ni] === generation) continue;
       const diag = dx !== 0 && dy !== 0;
       if (diag && (blocked[cy * w + nx] || blocked[ny * w + cx])) continue;
-      const g = gScore[cur] + (diag ? DIAG : STRAIGHT);
+      const g = gScore[cur] + (diag ? costs.diag : costs.straight)[terrain[ni]];
       if (seen[ni] === generation && g >= gScore[ni]) continue;
       seen[ni] = generation;
       gScore[ni] = g;
       parent[ni] = cur;
-      const hh = octile(nx, ny, gx, gy);
+      const hh = octile(nx, ny, gx, gy, hs, hd);
       heap.push(ni, g + hh, hh);
     }
   }
@@ -163,7 +194,7 @@ export function findPath(world: World, start: number, goal: number): number[] {
   const path: number[] = [];
   for (let n = best; n !== start && n !== -1; n = parent[n]) path.push(n);
   path.reverse();
-  return smooth(world, start, path);
+  return smooth(world, start, path, costs.straight);
 }
 
 /**
@@ -193,15 +224,23 @@ function nearestOpen(world: World, goal: number, sx: number, sy: number): number
   return goal;
 }
 
-/** Drop intermediate waypoints that have a clear straight line between them. */
-function smooth(world: World, start: number, path: number[]): number[] {
+/**
+ * Drop intermediate waypoints that have a clear straight line between them,
+ * as long as that line crosses no slower terrain than the path it replaces
+ * (so a unit doesn't leave a winding road to cut through grass or forest).
+ */
+function smooth(world: World, start: number, path: number[], cost: Int32Array): number[] {
   if (path.length < 3) return path;
   const out: number[] = [];
   let anchor = start;
+  // Dearest tile on the path since the anchor.
+  let worst = cost[world.terrain[path[0]]];
   for (let i = 1; i < path.length; i++) {
-    if (!clearLine(world, anchor, path[i])) {
+    worst = Math.max(worst, cost[world.terrain[path[i]]]);
+    if (!clearLine(world, anchor, path[i]) || maxLineCost(world, anchor, path[i], cost) > worst) {
       out.push(path[i - 1]);
       anchor = path[i - 1];
+      worst = Math.max(cost[world.terrain[path[i - 1]]], cost[world.terrain[path[i]]]);
     }
   }
   out.push(path[path.length - 1]);
@@ -230,6 +269,23 @@ export function clearLine(world: World, a: number, b: number): boolean {
     }
   }
   return true;
+}
+
+/** Dearest terrain step cost under the centre line from tile a to tile b. */
+function maxLineCost(world: World, a: number, b: number, cost: Int32Array): number {
+  const { w, terrain } = world;
+  const x0 = (a % w) * TILE + TILE / 2;
+  const y0 = ((a / w) | 0) * TILE + TILE / 2;
+  const dx = (b % w) * TILE + TILE / 2 - x0;
+  const dy = ((b / w) | 0) * TILE + TILE / 2 - y0;
+  const steps = Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / 32);
+  let worst = 0;
+  for (let s = 1; s < steps; s++) {
+    const tx = Math.floor((x0 + Math.trunc((dx * s) / steps)) / TILE);
+    const ty = Math.floor((y0 + Math.trunc((dy * s) / steps)) / TILE);
+    worst = Math.max(worst, cost[terrain[ty * w + tx]]);
+  }
+  return worst;
 }
 
 function blockedAt(world: World, x: number, y: number): boolean {

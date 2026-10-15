@@ -10,7 +10,7 @@ export type ItemType = UnitType | BuildingType;
 export type QueueKind = 'building' | 'infantry' | 'vehicle';
 export type Armor = 'infantry' | 'vehicle' | 'building';
 
-export const Terrain = { Grass: 0, Rock: 1, Water: 2 } as const;
+export const Terrain = { Grass: 0, Rock: 1, Water: 2, Forest: 3, Road: 4, Bridge: 5 } as const;
 
 export type HarvestState = 'seek' | 'toOre' | 'mining' | 'toRefinery' | 'unloading';
 

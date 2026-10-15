@@ -330,6 +330,9 @@ export class Renderer {
   private drawTerrain() {
     const world = this.world;
     const g = this.terrain.clear();
+    const at = (x: number, y: number) => (x < 0 || y < 0 || x >= world.w || y >= world.h ? -1 : world.terrain[y * world.w + x]);
+    const isRoad = (t: number) => t === Terrain.Road || t === Terrain.Bridge;
+    const trees: [number, number, number, number][] = [];
     for (let y = 0; y < world.h; y++) {
       for (let x = 0; x < world.w; x++) {
         const i = y * world.w + x;
@@ -342,12 +345,52 @@ export class Renderer {
           g.rect(px, py, TILE_PX, TILE_PX).fill(COLORS.rock);
           const h = (x * 31 + y * 17) % 4;
           g.poly([px + 6 + h, py + 20, px + 14, py + 8 + h, px + 24 - h, py + 18]).fill(COLORS.rockEdge);
-        } else {
+          // Cliff face: a shadow where the rock drops down to open ground below or to the right.
+          const open = (t2: number) => t2 >= 0 && t2 !== Terrain.Rock;
+          if (open(at(x, y + 1))) g.rect(px, py + TILE_PX - 6, TILE_PX, 6).fill(COLORS.rockShadow);
+          if (open(at(x + 1, y))) g.rect(px + TILE_PX - 4, py, 4, TILE_PX).fill({ color: COLORS.rockShadow, alpha: 0.8 });
+        } else if (t === Terrain.Water) {
           g.rect(px, py, TILE_PX, TILE_PX).fill(COLORS.water);
           if ((x + y * 3) % 4 === 0) g.moveTo(px + 6, py + 16).lineTo(px + 14, py + 13).lineTo(px + 22, py + 16).stroke({ width: 1, color: COLORS.waterEdge });
+        } else if (t === Terrain.Bridge) {
+          // Planks run across the direction of travel; rails along the sides facing water.
+          const horizontal = isRoad(at(x - 1, y)) || isRoad(at(x + 1, y));
+          g.rect(px, py, TILE_PX, TILE_PX).fill(COLORS.bridge);
+          for (let k = 4; k < TILE_PX; k += 6) {
+            if (horizontal) g.rect(px + k, py, 1.5, TILE_PX).fill(COLORS.bridgePlank);
+            else g.rect(px, py + k, TILE_PX, 1.5).fill(COLORS.bridgePlank);
+          }
+          if (horizontal) {
+            if (!isRoad(at(x, y - 1))) g.rect(px, py, TILE_PX, 3).fill(COLORS.bridgeRail);
+            if (!isRoad(at(x, y + 1))) g.rect(px, py + TILE_PX - 3, TILE_PX, 3).fill(COLORS.bridgeRail);
+          } else {
+            if (!isRoad(at(x - 1, y))) g.rect(px, py, 3, TILE_PX).fill(COLORS.bridgeRail);
+            if (!isRoad(at(x + 1, y))) g.rect(px + TILE_PX - 3, py, 3, TILE_PX).fill(COLORS.bridgeRail);
+          }
+        } else if (t === Terrain.Road) {
+          g.rect(px, py, TILE_PX, TILE_PX).fill(COLORS.road);
+          const edge = (x2: number, y2: number) => {
+            const n = at(x2, y2);
+            return n >= 0 && !isRoad(n);
+          };
+          if (edge(x, y - 1)) g.rect(px, py, TILE_PX, 2).fill(COLORS.roadEdge);
+          if (edge(x, y + 1)) g.rect(px, py + TILE_PX - 2, TILE_PX, 2).fill(COLORS.roadEdge);
+          if (edge(x - 1, y)) g.rect(px, py, 2, TILE_PX).fill(COLORS.roadEdge);
+          if (edge(x + 1, y)) g.rect(px + TILE_PX - 2, py, 2, TILE_PX).fill(COLORS.roadEdge);
+        } else if (t === Terrain.Forest) {
+          g.rect(px, py, TILE_PX, TILE_PX).fill(COLORS.forestFloor);
+          // A few trees per tile at stable pseudo-random spots, drawn after all floors so crowns overlap neighbours.
+          const n = 2 + (i % 2);
+          for (let k = 0; k < n; k++) {
+            const hx = ((i * 53 + k * 97) % 89) / 89;
+            const hy = ((i * 71 + k * 61) % 83) / 83;
+            trees.push([px + 5 + hx * 22, py + 5 + hy * 22, 6 + ((i + k * 3) % 4), COLORS.canopy[(i + k) % 3]]);
+          }
         }
       }
     }
+    for (const [cx, cy, r] of trees) g.circle(cx + 1.5, cy + 2, r).fill({ color: 0x000000, alpha: 0.25 });
+    for (const [cx, cy, r, c] of trees) g.circle(cx, cy, r).fill(c);
     // Faint grid.
     for (let x = 0; x <= world.w; x++) g.moveTo(x * TILE_PX, 0).lineTo(x * TILE_PX, world.h * TILE_PX);
     for (let y = 0; y <= world.h; y++) g.moveTo(0, y * TILE_PX).lineTo(world.w * TILE_PX, y * TILE_PX);

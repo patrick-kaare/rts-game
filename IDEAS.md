@@ -25,7 +25,6 @@ Ordered roughly by how much each would improve play compared to the work involve
 - **Veterancy**: units get stronger as they get kills.
 
 ## Map and terrain
-- **Terrain that matters**: cliffs and chokepoints, water, bridges, forests that block sight, roads that speed units up.
 - **Neutral buildings** you can capture, like an oil derrick for income or a hospital that heals.
 - **Map presets or a map editor** in addition to the generated ring maps.
 

@@ -5,6 +5,15 @@ import { TILE, Terrain, type World } from '../sim/types';
 
 const SIZE = 192;
 
+/** RGB per terrain id. */
+const MINIMAP_COLORS: number[][] = [];
+MINIMAP_COLORS[Terrain.Grass] = [47, 74, 44];
+MINIMAP_COLORS[Terrain.Rock] = [91, 93, 97];
+MINIMAP_COLORS[Terrain.Water] = [29, 59, 92];
+MINIMAP_COLORS[Terrain.Forest] = [26, 56, 28];
+MINIMAP_COLORS[Terrain.Road] = [120, 102, 72];
+MINIMAP_COLORS[Terrain.Bridge] = [138, 104, 64];
+
 export class Minimap {
   readonly canvas = document.createElement('canvas');
   private ctx: CanvasRenderingContext2D;
@@ -60,7 +69,7 @@ export class Minimap {
     const img = ctx.createImageData(world.w, world.h);
     for (let i = 0; i < world.terrain.length; i++) {
       const t = world.terrain[i];
-      let c = t === Terrain.Grass ? [47, 74, 44] : t === Terrain.Rock ? [91, 93, 97] : [29, 59, 92];
+      let c = MINIMAP_COLORS[t];
       if (world.ore[i]) c = [224, 168, 46];
       img.data.set([c[0], c[1], c[2], 255], i * 4);
     }

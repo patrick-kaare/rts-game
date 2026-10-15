@@ -4,16 +4,20 @@ export interface GameRules {
   fog: FogRule;
   mapSize: MapSizeRule;
   startUnits: StartUnitsRule;
+  terrain: TerrainRule;
 }
 
 export type FogRule = 'full' | 'explored' | 'off';
 export type MapSizeRule = 'auto' | 'small' | 'medium' | 'large' | 'huge';
 export type StartUnitsRule = 'none' | 'squad' | 'army';
+/** Classic: rock and water blobs only. Rich: rivers with bridges, roads, forests and cliff ridges. */
+export type TerrainRule = 'classic' | 'rich';
 
 export const CREDIT_OPTIONS = [1000, 3000, 5000, 10000];
 export const FOG_OPTIONS: FogRule[] = ['full', 'explored', 'off'];
 export const MAP_SIZE_OPTIONS: MapSizeRule[] = ['auto', 'small', 'medium', 'large', 'huge'];
 export const START_UNITS_OPTIONS: StartUnitsRule[] = ['none', 'squad', 'army'];
+export const TERRAIN_OPTIONS: TerrainRule[] = ['rich', 'classic'];
 
 /** Per player, set in the lobby for AI slots. Humans always play Normal. */
 export type Difficulty = 'easy' | 'normal' | 'hard';
@@ -29,7 +33,7 @@ export const DIFFICULTY: Record<Difficulty, { build: number; income: number }> =
   hard: { build: 150, income: 140 },
 };
 
-export const DEFAULT_RULES: GameRules = { credits: 3000, fog: 'full', mapSize: 'auto', startUnits: 'squad' };
+export const DEFAULT_RULES: GameRules = { credits: 3000, fog: 'full', mapSize: 'auto', startUnits: 'squad', terrain: 'rich' };
 
 /** Strict shape check for rules from the network or storage. */
 export function isValidRules(r: unknown): r is GameRules {
@@ -39,11 +43,12 @@ export function isValidRules(r: unknown): r is GameRules {
     CREDIT_OPTIONS.includes(rules.credits as number) &&
     FOG_OPTIONS.includes(rules.fog as FogRule) &&
     MAP_SIZE_OPTIONS.includes(rules.mapSize as MapSizeRule) &&
-    START_UNITS_OPTIONS.includes(rules.startUnits as StartUnitsRule)
+    START_UNITS_OPTIONS.includes(rules.startUnits as StartUnitsRule) &&
+    TERRAIN_OPTIONS.includes(rules.terrain as TerrainRule)
   );
 }
 
 /** Copy only the known fields, so extra junk never reaches the match. */
 export function cleanRules(r: GameRules): GameRules {
-  return { credits: r.credits, fog: r.fog, mapSize: r.mapSize, startUnits: r.startUnits };
+  return { credits: r.credits, fog: r.fog, mapSize: r.mapSize, startUnits: r.startUnits, terrain: r.terrain };
 }
