@@ -4,6 +4,7 @@ import { bfsFind } from '../pathfinding';
 import { TILE, type Entity, type ItemType, type Player, type QueueKind, type UnitType, type World } from '../types';
 import { addUnit, hasBuilding } from '../world';
 import { startHarvesting } from './economy';
+import { setPath } from './movement';
 
 const QUEUE_KINDS: QueueKind[] = ['building', 'infantry', 'vehicle'];
 export const MAX_UNIT_QUEUE = 10;
@@ -72,7 +73,7 @@ export function findProducer(world: World, owner: number, kind: QueueKind): Enti
   return undefined;
 }
 
-/** Spawn a unit at the nearest free tile below the producer. */
+/** Spawn a unit at the nearest free tile below the producer, sending it to the rally point if set. */
 export function spawnUnit(world: World, owner: number, type: UnitType, producer: Entity): Entity | null {
   const exitX = producer.tx + Math.floor(producer.w / 2);
   const exitY = Math.min(world.h - 1, producer.ty + producer.h);
@@ -87,5 +88,11 @@ export function spawnUnit(world: World, owner: number, type: UnitType, producer:
   const y = Math.floor(tile / world.w) * TILE + TILE / 2;
   const u = addUnit(world, owner, type, x, y);
   if (type === 'harvester') startHarvesting(u);
+  else if (producer.rallyX >= 0) {
+    const rx = producer.rallyX * TILE + TILE / 2;
+    const ry = producer.rallyY * TILE + TILE / 2;
+    u.order = { t: 'move', x: rx, y: ry };
+    setPath(world, u, rx, ry);
+  }
   return u;
 }

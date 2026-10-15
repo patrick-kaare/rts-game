@@ -190,6 +190,7 @@ export class Renderer {
       const w = e.w * TILE_PX;
       const h = e.h * TILE_PX;
       if (selected) this.brackets(o, x, y, w, h);
+      if (selected && e.owner === me && e.rallyX >= 0) this.rallyLine(o, x + w / 2, y + h, e.rallyX, e.rallyY);
       if (selected || e.hp < e.maxHp) this.healthBar(o, x + 4, y - 7, w - 8, e.hp / e.maxHp);
     }
 
@@ -226,6 +227,15 @@ export class Renderer {
   private healthBar(g: Graphics, x: number, y: number, w: number, frac: number) {
     g.rect(x, y, w, 4).fill(0x000000);
     g.rect(x + 1, y + 1, Math.max(0, (w - 2) * frac), 2).fill(hpColor(frac));
+  }
+
+  /** Line from a producer's exit to its rally point, with a small flag there. */
+  private rallyLine(g: Graphics, x0: number, y0: number, tx: number, ty: number) {
+    const x1 = tx * TILE_PX + TILE_PX / 2;
+    const y1 = ty * TILE_PX + TILE_PX / 2;
+    g.moveTo(x0, y0).lineTo(x1, y1).stroke({ width: 1, color: COLORS.rally, alpha: 0.6 });
+    g.moveTo(x1, y1).lineTo(x1, y1 - 12).stroke({ width: 1.5, color: 0xffffff });
+    g.poly([x1, y1 - 12, x1 + 8, y1 - 9, x1, y1 - 6]).fill(COLORS.rally);
   }
 
   private brackets(g: Graphics, x: number, y: number, w: number, h: number) {

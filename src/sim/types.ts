@@ -63,6 +63,9 @@ export interface Entity {
   ty: number;
   w: number;
   h: number;
+  /** Producers: tile new units walk to, -1 if none. */
+  rallyX: number;
+  rallyY: number;
 }
 
 export interface Queue {
@@ -94,6 +97,7 @@ export type Command =
   | { t: 'harvest'; ids: number[]; x: number; y: number }
   | { t: 'dock'; ids: number[]; refinery: number }
   | { t: 'stop'; ids: number[] }
+  | { t: 'rally'; ids: number[]; x: number; y: number }
   | { t: 'build'; item: ItemType }
   | { t: 'cancel'; item: ItemType }
   | { t: 'place'; item: BuildingType; x: number; y: number };

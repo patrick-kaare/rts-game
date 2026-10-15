@@ -100,6 +100,8 @@ function baseEntity(world: World, owner: number): Entity {
     ty: 0,
     w: 0,
     h: 0,
+    rallyX: -1,
+    rallyY: -1,
   };
 }
 

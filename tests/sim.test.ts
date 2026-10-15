@@ -4,7 +4,7 @@ import { stateHash } from '../src/sim/hash';
 import { findPath } from '../src/sim/pathfinding';
 import { canPlace } from '../src/sim/systems/construction';
 import { stepWorld } from '../src/sim/step';
-import { TILE, Terrain, type World } from '../src/sim/types';
+import { TILE, Terrain, type Entity, type World } from '../src/sim/types';
 import { addBuilding, addUnit, createWorld, tileOf } from '../src/sim/world';
 import { aiMatch } from './helpers';
 
@@ -98,6 +98,39 @@ describe('combat', () => {
       const t = tileOf(w, e.x, e.y);
       expect(Math.abs((t % w.w) - 40)).toBeLessThanOrEqual(3);
     }
+  });
+});
+
+describe('production', () => {
+  it('sends new units to the rally point', () => {
+    const w = flatWorld();
+    w.players[0].credits = 10000;
+    addBuilding(w, 0, 'cy', 5, 5);
+    addBuilding(w, 0, 'power', 9, 5);
+    const rax = addBuilding(w, 0, 'barracks', 5, 9);
+    applyCommand(w, 0, { t: 'rally', ids: [rax.id], x: 40, y: 20 });
+    expect([rax.rallyX, rax.rallyY]).toEqual([40, 20]);
+    applyCommand(w, 0, { t: 'build', item: 'rifleman' });
+    let rifle: Entity | undefined;
+    for (let i = 0; i < 3000 && !rifle; i++) {
+      stepWorld(w);
+      rifle = [...w.entities.values()].find((e) => e.owner === 0 && e.type === 'rifleman');
+    }
+    expect(rifle).toBeDefined();
+    for (let i = 0; i < 800; i++) stepWorld(w);
+    const t = tileOf(w, rifle!.x, rifle!.y);
+    expect(Math.abs((t % w.w) - 40)).toBeLessThanOrEqual(1);
+    expect(Math.abs(Math.floor(t / w.w) - 20)).toBeLessThanOrEqual(1);
+  });
+
+  it('clears the rally point on the building itself and ignores other players', () => {
+    const w = flatWorld();
+    const rax = addBuilding(w, 0, 'barracks', 5, 9);
+    applyCommand(w, 1, { t: 'rally', ids: [rax.id], x: 40, y: 20 });
+    expect(rax.rallyX).toBe(-1);
+    applyCommand(w, 0, { t: 'rally', ids: [rax.id], x: 40, y: 20 });
+    applyCommand(w, 0, { t: 'rally', ids: [rax.id], x: rax.tx, y: rax.ty });
+    expect([rax.rallyX, rax.rallyY]).toEqual([-1, -1]);
   });
 });
 

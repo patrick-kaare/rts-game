@@ -73,6 +73,7 @@ export function isValidCommand(c: unknown): c is Command {
     case 'move':
     case 'attackMove':
     case 'harvest':
+    case 'rally':
       return isIds(cmd.ids) && isCoord(cmd.x) && isCoord(cmd.y);
     case 'attack':
       return isIds(cmd.ids) && isInt(cmd.target);
@@ -96,6 +97,7 @@ export function cleanCommand(cmd: Command): Command {
     case 'move':
     case 'attackMove':
     case 'harvest':
+    case 'rally':
       return { t: cmd.t, ids: [...cmd.ids], x: cmd.x, y: cmd.y };
     case 'attack':
       return { t: 'attack', ids: [...cmd.ids], target: cmd.target };

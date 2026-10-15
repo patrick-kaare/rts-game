@@ -32,6 +32,7 @@ export const COLORS = {
   shellShot: 0xffa640,
   valid: 0x22c55e,
   invalid: 0xef4444,
+  rally: 0x38bdf8,
 };
 
 export function hpColor(frac: number): number {

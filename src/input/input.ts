@@ -2,6 +2,7 @@ import { TILE_PX } from '../client';
 import type { Game } from '../game';
 import { placementOrigin } from '../render/renderer';
 import { BUILDINGS } from '../sim/data/buildings';
+import { PRODUCER } from '../sim/data/items';
 import { canPlace } from '../sim/systems/construction';
 import { TILE, type Entity } from '../sim/types';
 import { unitDef } from '../sim/world';
@@ -166,6 +167,16 @@ export class Input {
     return out;
   }
 
+  /** Selected own buildings that can have a rally point. */
+  selectedOwnProducers(): Entity[] {
+    const out: Entity[] = [];
+    for (const id of this.state.selection) {
+      const e = this.game.world.entities.get(id);
+      if (e && e.owner === this.state.localPlayer && (e.type === PRODUCER.infantry || e.type === PRODUCER.vehicle)) out.push(e);
+    }
+    return out;
+  }
+
   /** Entity under a viewport point, respecting fog. */
   pick(p: { x: number; y: number }): Entity | null {
     const world = this.game.world;
@@ -226,21 +237,30 @@ export class Input {
     for (const id of found) st.selection.add(id);
   }
 
-  /** Right-click: move, attack, harvest or dock depending on what's under the cursor. */
+  /**
+   * Right-click: move, attack, harvest or dock depending on what's under the cursor.
+   * Selected barracks and factories get their rally point set.
+   */
   private contextCommand(p: { x: number; y: number }) {
     const st = this.state;
     const world = this.game.world;
     const units = this.selectedOwnUnits();
-    if (!units.length) {
+    const producers = this.selectedOwnProducers();
+    if (!units.length && !producers.length) {
       st.selection.clear();
       return;
     }
-    const ids = units.map((e) => e.id);
-    const target = this.pick(p);
     const w = this.toWorldPx(p);
     const tx = Math.floor(w.x / TILE_PX);
     const ty = Math.floor(w.y / TILE_PX);
     if (tx < 0 || ty < 0 || tx >= world.w || ty >= world.h) return;
+    if (producers.length) {
+      this.game.send({ t: 'rally', ids: producers.map((e) => e.id), x: tx, y: ty });
+      if (!units.length) this.game.renderer.marker(tx, ty, 0x38bdf8);
+    }
+    if (!units.length) return;
+    const ids = units.map((e) => e.id);
+    const target = this.pick(p);
 
     if (target && target.owner !== st.localPlayer) {
       this.game.send({ t: 'attack', ids, target: target.id });
@@ -281,9 +301,9 @@ export class Input {
     const st = this.state;
     let cursor = 'default';
     if (st.placing) cursor = 'cell';
-    else if (this.selectedOwnUnits().length) {
+    else if (this.selectedOwnUnits().length || this.selectedOwnProducers().length) {
       const t = this.pick(st.mouse);
-      if (t && t.owner !== st.localPlayer) cursor = 'crosshair';
+      if (t && t.owner !== st.localPlayer && this.selectedOwnUnits().length) cursor = 'crosshair';
       else cursor = 'pointer';
     }
     if (this.el.style.cursor !== cursor) this.el.style.cursor = cursor;

@@ -1,4 +1,4 @@
-import { isBuildingType, queueKindOf } from './data/items';
+import { PRODUCER, isBuildingType, queueKindOf } from './data/items';
 import { bfsFind } from './pathfinding';
 import { canPlace } from './systems/construction';
 import { startHarvesting } from './systems/economy';
@@ -62,6 +62,18 @@ export function applyCommand(world: World, playerId: number, cmd: Command): void
         e.order = { t: 'idle' };
         e.targetId = 0;
         clearPath(e);
+      }
+      return;
+    }
+    case 'rally': {
+      if (!inBounds(world, cmd.x, cmd.y)) return;
+      for (const id of cmd.ids) {
+        const b = world.entities.get(id);
+        if (!b || b.owner !== playerId || (b.type !== PRODUCER.infantry && b.type !== PRODUCER.vehicle)) continue;
+        // Right-clicking the building itself clears its rally point.
+        const inside = cmd.x >= b.tx && cmd.x < b.tx + b.w && cmd.y >= b.ty && cmd.y < b.ty + b.h;
+        b.rallyX = inside ? -1 : cmd.x;
+        b.rallyY = inside ? -1 : cmd.y;
       }
       return;
     }

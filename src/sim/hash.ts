@@ -28,6 +28,8 @@ export function stateHash(world: World): number {
     mix(e.targetId);
     mix(e.pathIdx);
     mix(e.order.t.length);
+    mix(e.rallyX);
+    mix(e.rallyY);
   }
   for (let i = 0; i < world.ore.length; i++) if (world.ore[i]) mix(i * 65536 + world.ore[i]);
   return h >>> 0;
