@@ -144,18 +144,21 @@ export function createServer(port: number, opts: ServerOptions = {}): Promise<Ga
       if (!msg || typeof msg !== 'object') return;
       const room = roomOf.get(socket);
 
-      if (msg.t === 'create' || msg.t === 'join' || msg.t === 'rejoin') {
+      if (msg.t === 'create' || msg.t === 'join' || msg.t === 'watch' || msg.t === 'rejoin') {
         if (room) return;
         let target: Room | undefined;
         if (msg.t === 'create') {
-          target = new Room(newCode(), randomInt(2 ** 31), opts.manualClock, msg.rules, msg.slots, msg.teams, msg.difficulties);
+          target = new Room(newCode(), randomInt(2 ** 31), opts.manualClock, msg.rules, msg.slots, msg.teams, msg.difficulties, msg.spectate);
           rooms.set(target.code, target);
         } else {
           target = rooms.get(String(msg.code ?? '').toUpperCase());
           if (!target) return send(socket, { t: 'error', msg: 'No game with that code.' });
         }
         if (msg.t === 'rejoin') {
-          if (target.rejoin(socket, String(msg.token)) < 0) return send(socket, { t: 'error', msg: 'Your seat in that game is gone.' });
+          if (!target.rejoin(socket, String(msg.token))) return send(socket, { t: 'error', msg: 'Your seat in that game is gone.' });
+        } else if (msg.t === 'watch') {
+          const err = target.watch(socket, String(msg.name ?? ''));
+          if (err) return send(socket, { t: 'error', msg: err });
         } else {
           const res = target.join(socket, String(msg.name ?? ''));
           if (typeof res === 'string') return send(socket, { t: 'error', msg: res });
@@ -166,7 +169,13 @@ export function createServer(port: number, opts: ServerOptions = {}): Promise<Ga
 
       if (!room) return;
       const slot = room.slotOf(socket);
-      if (slot < 0) return;
+      if (slot < 0) {
+        // Watchers can only chat and report hashes.
+        const watcher = room.watcherOf(socket);
+        if (watcher && msg.t === 'chat') room.chat(watcher, msg.text, msg.allies);
+        else if (watcher && msg.t === 'hash') room.checkHash(watcher, msg.tick, msg.hash);
+        return;
+      }
       switch (msg.t) {
         case 'slot':
           room.setSlot(slot, msg.index, msg.kind);
@@ -179,6 +188,9 @@ export function createServer(port: number, opts: ServerOptions = {}): Promise<Ga
           break;
         case 'rules':
           room.setRules(slot, msg.rules);
+          break;
+        case 'spectate':
+          room.setSpectate(slot, msg.on);
           break;
         case 'start': {
           const err = room.start(slot);

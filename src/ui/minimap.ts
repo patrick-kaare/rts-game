@@ -82,7 +82,8 @@ export class Minimap {
 
   draw() {
     const world = this.game.world;
-    const me = this.game.state.localPlayer;
+    // The viewed player; -1 for a spectator's whole map view, which has no fog.
+    const me = this.game.state.view;
     const ctx = this.ctx;
     // Mining changes ore every tick, so batch those; slow regrowth still shows up within a couple of seconds.
     const oreChanged = world.oreVersion - this.oreVersion;
@@ -90,18 +91,18 @@ export class Minimap {
     const sx = SIZE / world.w;
     const sy = SIZE / world.h;
     // Full power rules: radar goes dark at low power, showing only our own things.
-    const dark = world.rules.power === 'full' && isLowPower(world.players[me]);
+    const dark = me >= 0 && world.rules.power === 'full' && isLowPower(world.players[me]);
     ctx.imageSmoothingEnabled = false;
     if (dark) {
       ctx.fillStyle = '#16181c';
       ctx.fillRect(0, 0, SIZE, SIZE);
     } else ctx.drawImage(this.base, 0, 0, SIZE, SIZE);
 
-    const vis = world.visible[me];
+    const vis = me >= 0 ? world.visible[me] : null;
     for (const e of world.entities.values()) {
       const tx = Math.floor(e.x / TILE);
       const ty = Math.floor(e.y / TILE);
-      if (e.owner !== me && (dark || !vis[ty * world.w + tx])) continue;
+      if (vis && e.owner !== me && (dark || !vis[ty * world.w + tx])) continue;
       ctx.fillStyle = TEAM[e.owner].css;
       if (e.kind === 'building') ctx.fillRect(e.tx * sx, e.ty * sy, e.w * sx, e.h * sy);
       else ctx.fillRect(tx * sx, ty * sy, Math.max(2, sx), Math.max(2, sy));
@@ -113,7 +114,7 @@ export class Minimap {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText('RADAR OFFLINE', SIZE / 2, SIZE / 2);
-    } else {
+    } else if (vis) {
       // Fog: one pixel per tile, scaled up.
       const exp = world.explored[me];
       const data = this.fogImage!.data;

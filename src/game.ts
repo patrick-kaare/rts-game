@@ -7,7 +7,6 @@ import { LocalTransport } from './net/local';
 import type { NetTransport, StartInfo } from './net/net';
 import { HASH_INTERVAL, type MatchPlayer } from './net/protocol';
 import type { CommandTransport } from './net/transport';
-import { TEAM } from './render/palette';
 import { Renderer } from './render/renderer';
 import { applyCommand } from './sim/commands';
 import { stateHash } from './sim/hash';
@@ -15,7 +14,7 @@ import type { GameRules } from './sim/rules';
 import { stepWorld } from './sim/step';
 import { TICK_MS, type Command, type World } from './sim/types';
 import { areAllies, createWorld } from './sim/world';
-import { ChatBox } from './ui/chat';
+import { ChatBox, chatColor } from './ui/chat';
 import { Sidebar } from './ui/sidebar';
 
 const LOCAL_PLAYER = 0;
@@ -46,11 +45,11 @@ export class Game {
   readonly renderer: Renderer;
   readonly input: Input;
   readonly sidebar: Sidebar;
-  /** Online only. Lines sent in the lobby keep their lobby slot colour. */
-  readonly chat = new ChatBox('game', (m) => TEAM[m.player >= 0 ? m.player : m.slot]?.css ?? '');
+  /** Online only. */
+  readonly chat = new ChatBox('game', chatColor);
   private net: NetTransport | null = null;
   private ais: AIController[] = [];
-  private localConfig: { players: MatchPlayer[]; rules: GameRules } | null = null;
+  private localConfig: { players: MatchPlayer[]; rules: GameRules; spectator: boolean } | null = null;
   /** Real time owed to the sim, in ms. */
   private acc = 0;
   private lastPump = performance.now();
@@ -85,9 +84,14 @@ export class Game {
     return this.net !== null;
   }
 
-  /** Offline match: player 0 is the local human, the rest are AIs. */
-  startLocal(seed: number, players: MatchPlayer[], rules: GameRules) {
-    this.localConfig = { players, rules };
+  /** Watching rather than playing. */
+  get spectator(): boolean {
+    return this.state.localPlayer < 0;
+  }
+
+  /** Offline match: player 0 is the local human, the rest are AIs. A spectator watches AIs only. */
+  startLocal(seed: number, players: MatchPlayer[], rules: GameRules, spectator = false) {
+    this.localConfig = { players, rules, spectator };
     this.net = null;
     const transport = new LocalTransport();
     this.transport = transport;
@@ -95,7 +99,7 @@ export class Game {
     this.connected = this.players.map(() => true);
     this.chat.show(false);
     const world = createWorld(seed, players.length, rules, players.map((p) => p.team), players.map((p) => p.difficulty));
-    this.begin(world, LOCAL_PLAYER);
+    this.begin(world, spectator ? -1 : LOCAL_PLAYER);
     this.ais = this.players.flatMap((p, id) => (p.ai ? [new AIController(id, transport)] : []));
   }
 
@@ -111,7 +115,8 @@ export class Game {
     net.onConnection = (lost) => (this.connectionLost = lost);
     net.onError = (msg) => this.showOverlay('Disconnected', msg, [this.endButton()]);
     this.chat.setMessages(net.chatLog);
-    this.chat.canAllies = info.players[info.you].team > 0;
+    this.chat.spectators = info.you < 0;
+    this.chat.canAllies = (info.players[info.you]?.team ?? 0) > 0;
     this.chat.onSend = (text, allies) => net.chat(text, allies);
     net.onChat = (msg) => (msg ? this.chat.add(msg) : this.chat.setMessages(net.chatLog));
     this.chat.show(true);
@@ -149,12 +154,31 @@ export class Game {
   }
 
   send(cmd: Command) {
+    // Spectators never command anyone.
+    if (this.spectator) return;
     this.transport.send(this.state.localPlayer, cmd);
   }
 
+  /** Spectators: show the whole map (-1) or one player's view, and jump to that player's base. */
+  setView(view: number) {
+    if (!this.spectator || view >= this.world.players.length) return;
+    if (view !== this.state.view) {
+      this.state.view = view;
+      this.state.selection.clear();
+      this.renderer.setView(view);
+      this.sidebar.setView();
+    }
+    this.centerOnBase();
+  }
+
+  /** Center on the viewed player's construction yard (or start); the whole map view centers on the middle. */
   centerOnBase() {
     if (!this.world) return;
-    const me = this.world.players[this.state.localPlayer];
+    if (this.state.view < 0) {
+      this.camera.centerOn((this.world.w / 2) * TILE_PX, (this.world.h / 2) * TILE_PX);
+      return;
+    }
+    const me = this.world.players[this.state.view];
     for (const e of this.world.entities.values()) {
       if (e.owner === me.id && e.type === 'cy') {
         this.camera.centerOn((e.tx + 1.5) * TILE_PX, (e.ty + 1.5) * TILE_PX);
@@ -236,9 +260,10 @@ export class Game {
       this.gameOver = true;
       const me = this.state.localPlayer;
       const draw = world.winner >= world.players.length;
-      const won = !draw && areAllies(world, world.winner, me);
-      this.showOverlay(won ? 'Victory' : 'Defeat', draw ? 'Nobody survived.' : this.winnerText(won), this.endButtons());
-    } else if (world.winner < 0 && !this.shownDefeat && world.players[this.state.localPlayer].defeated) {
+      const won = !draw && me >= 0 && areAllies(world, world.winner, me);
+      const title = this.spectator ? 'Match over' : won ? 'Victory' : 'Defeat';
+      this.showOverlay(title, draw ? 'Nobody survived.' : this.winnerText(won), this.endButtons());
+    } else if (world.winner < 0 && !this.shownDefeat && !this.spectator && world.players[this.state.localPlayer].defeated) {
       // Knocked out while others play on: let the player watch or leave.
       this.shownDefeat = true;
       const me = this.state.localPlayer;
@@ -289,7 +314,7 @@ export class Game {
     const local = this.localConfig;
     if (this.online || !local) return [this.endButton()];
     return [
-      { label: 'Play again', action: () => this.startLocal((Math.random() * 2 ** 31) | 0, local.players, local.rules) },
+      { label: 'Play again', action: () => this.startLocal((Math.random() * 2 ** 31) | 0, local.players, local.rules, local.spectator) },
       {
         label: 'Back to lobby',
         action: () => {

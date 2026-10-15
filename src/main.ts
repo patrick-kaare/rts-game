@@ -19,7 +19,7 @@ async function main() {
   viewport.append(overlay, status);
 
   const lobby = new Lobby({
-    playLocal: (seed, players, rules) => game.startLocal(seed, players, rules),
+    playLocal: (seed, players, rules, spectator) => game.startLocal(seed, players, rules, spectator),
     playOnline: (net, info) => game.startOnline(net, info),
   });
   const game = new Game(app, viewport, document.getElementById('sidebar')!, overlay, status, {

@@ -1,7 +1,17 @@
 import { CHAT_HISTORY, MAX_CHAT, type ChatMsg } from '../net/protocol';
+import { TEAM } from '../render/palette';
 
 /** In game, lines fade out this long after they arrive. */
 const FADE_MS = 10_000;
+
+/** Grey, for spectators. */
+export const SPECTATOR_CSS = '#9ca3af';
+
+/** Name colour: the sender's player colour, or in the lobby their slot colour; spectators are grey. */
+export function chatColor(m: ChatMsg): string {
+  if (m.spectator || m.slot < 0) return SPECTATOR_CSS;
+  return TEAM[m.player >= 0 ? m.player : m.slot]?.css ?? '';
+}
 
 /**
  * Chat panel. In the lobby it is a static panel with the input always shown;
@@ -18,6 +28,7 @@ export class ChatBox {
   private target = document.createElement('button');
   private input = document.createElement('input');
   private canAlliesValue = false;
+  private spectatorsValue = false;
 
   constructor(
     private mode: 'lobby' | 'game',
@@ -53,6 +64,13 @@ export class ChatBox {
     this.canAlliesValue = v;
     if (!v) this.allies = false;
     this.updateTarget();
+  }
+
+  /** We are a spectator in a match: what we send only reaches other spectators. */
+  set spectators(v: boolean) {
+    this.spectatorsValue = v;
+    if (v) this.canAllies = false;
+    else this.updateTarget();
   }
 
   get isOpen(): boolean {
@@ -127,7 +145,7 @@ export class ChatBox {
   }
 
   private updateTarget() {
-    this.target.textContent = this.allies ? 'Allies' : 'All';
+    this.target.textContent = this.spectatorsValue ? 'Spectators' : this.allies ? 'Allies' : 'All';
     this.target.classList.toggle('allies', this.allies);
     this.target.disabled = !this.canAllies;
   }
@@ -136,10 +154,10 @@ export class ChatBox {
     const atBottom = this.list.scrollTop + this.list.clientHeight >= this.list.scrollHeight - 4;
     const row = document.createElement('div');
     row.className = 'chat-line';
-    if (msg.allies) {
-      row.classList.add('allies');
+    if (msg.allies || msg.spectator) {
+      row.classList.add(msg.allies ? 'allies' : 'spectators');
       const tag = document.createElement('em');
-      tag.textContent = '(allies) ';
+      tag.textContent = msg.allies ? '(allies) ' : '(spectators) ';
       row.append(tag);
     }
     const name = document.createElement('b');

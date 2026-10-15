@@ -31,6 +31,12 @@ export class Sidebar {
   private buttons: ItemButton[] = [];
   private info: HTMLDivElement;
   private playerList: HTMLDivElement;
+  private stats: HTMLDivElement;
+  private sections: HTMLDivElement[] = [];
+  private help: HTMLDivElement;
+  /** Spectators only: whose view to show. */
+  private spectate: HTMLDivElement;
+  private viewSelect = document.createElement('select');
   private frame = 0;
 
   constructor(
@@ -41,7 +47,14 @@ export class Sidebar {
     el.innerHTML = '';
     el.append(this.minimap.canvas);
 
+    this.spectate = div('spectate');
+    this.spectate.hidden = true;
+    this.viewSelect.addEventListener('change', () => game.setView(Number(this.viewSelect.value)));
+    this.spectate.append(labelled('Spectating', this.viewSelect));
+    el.append(this.spectate);
+
     const stats = div('stats');
+    this.stats = stats;
     this.credits = span('credits');
     const power = div('power');
     this.powerBar = div('power-fill');
@@ -51,6 +64,11 @@ export class Sidebar {
     el.append(stats);
 
     this.playerList = div('players');
+    // Spectators click a player to see through their eyes.
+    this.playerList.addEventListener('click', (ev) => {
+      const row = (ev.target as HTMLElement).closest<HTMLElement>('[data-player]');
+      if (row && game.spectator) game.setView(Number(row.dataset.player));
+    });
     el.append(this.playerList);
 
     for (const kind of Object.keys(BUILD_MENU) as QueueKind[]) {
@@ -61,27 +79,55 @@ export class Sidebar {
       for (const item of BUILD_MENU[kind]) grid.append(this.makeButton(item));
       section.append(h, grid);
       el.append(section);
+      this.sections.push(section);
     }
 
     this.info = div('info');
     el.append(this.info);
 
-    const help = div('help');
-    help.innerHTML = [
-      '<b>LMB</b> select / drag box, <b>Shift</b> add',
-      '<b>RMB</b> move · attack · harvest',
-      '<b>WASD</b> / <b>arrows</b> / minimap to scroll',
-      '<b>RMB</b> on build item: cancel',
-    ].join('<br>');
-    el.append(help);
+    this.help = div('help');
+    el.append(this.help);
   }
 
   setWorld(world: World) {
     this.minimap.setWorld(world);
-    const color = TEAM[this.game.state.localPlayer].css;
-    for (const b of this.buttons) b.icon.innerHTML = iconSvg(b.item, color);
+    const spectator = this.game.spectator;
+    this.spectate.hidden = !spectator;
+    this.viewSelect.innerHTML = '';
+    if (spectator) {
+      this.viewSelect.append(new Option('Whole map (0)', '-1'));
+      world.players.forEach((_, i) => {
+        const opt = new Option(`${this.game.players[i]?.name ?? `Player ${i + 1}`}${i < 9 ? ` (${i + 1})` : ''}`, String(i));
+        opt.style.color = TEAM[i].css;
+        this.viewSelect.append(opt);
+      });
+    }
+    this.help.innerHTML = (
+      spectator
+        ? ['<b>0</b> whole map · <b>1–9</b> player view', 'or click a player above', '<b>LMB</b> select for info', '<b>WASD</b> / <b>arrows</b> / minimap to scroll']
+        : ['<b>LMB</b> select / drag box, <b>Shift</b> add', '<b>RMB</b> move · attack · harvest', '<b>WASD</b> / <b>arrows</b> / minimap to scroll', '<b>RMB</b> on build item: cancel']
+    ).join('<br>');
     this.playerList.innerHTML = '';
-    this.playerList.hidden = world.players.length <= 2 && !this.game.online;
+    this.playerList.hidden = world.players.length <= 2 && !this.game.online && !spectator;
+    this.playerList.classList.toggle('pickable', spectator);
+    this.setView();
+  }
+
+  /**
+   * The view changed (spectators): the whole map hides one player's credits and
+   * build menu; a player's view shows theirs, read-only.
+   */
+  setView() {
+    const view = this.game.state.view;
+    this.viewSelect.value = String(view);
+    this.stats.hidden = view < 0;
+    for (const s of this.sections) {
+      s.hidden = view < 0;
+      s.classList.toggle('readonly', this.game.spectator);
+    }
+    const color = TEAM[Math.max(0, view)].css;
+    for (const b of this.buttons) b.icon.innerHTML = iconSvg(b.item, color);
+    this.frame = 0;
   }
 
   private makeButton(item: ItemType): HTMLButtonElement {
@@ -101,6 +147,7 @@ export class Sidebar {
     el.addEventListener('click', () => this.onClick(item));
     el.addEventListener('contextmenu', (ev) => {
       ev.preventDefault();
+      if (this.game.spectator) return;
       this.game.send({ t: 'cancel', item });
       if (this.game.state.placing === item) this.game.state.placing = null;
     });
@@ -110,6 +157,7 @@ export class Sidebar {
 
   private onClick(item: ItemType) {
     const game = this.game;
+    if (game.spectator) return;
     const p = game.world.players[game.state.localPlayer];
     if (isBuildingType(item)) {
       const q = p.queues.building;
@@ -126,7 +174,12 @@ export class Sidebar {
     // DOM updates at ~15 Hz are plenty.
     if (this.frame++ % 4 !== 0) return;
     const world = this.game.world;
-    const me = this.game.state.localPlayer;
+    const me = this.game.state.view;
+    this.updateInfo();
+    this.updatePlayers();
+    this.minimap.draw();
+    // Spectators' whole map view: no one player's credits or build menu.
+    if (me < 0) return;
     const p = world.players[me];
     this.credits.textContent = String(p.credits);
     const total = Math.max(p.powerProduced, p.powerUsed, 1);
@@ -155,17 +208,15 @@ export class Sidebar {
       b.status.textContent = status;
       b.el.classList.toggle('ready', active && q.ready);
     }
-
-    this.updateInfo();
-    this.updatePlayers();
-    this.minimap.draw();
   }
 
   /** One row per player, grouped by team: colour, name, and whether they are still in it. */
   private updatePlayers() {
     if (this.playerList.hidden) return;
     const { world, players, connected } = this.game;
-    const me = this.game.state.localPlayer;
+    const me = this.game.state.view;
+    // Spectators' whole map view lists everyone's credits and power instead.
+    const economy = me < 0;
     // Players without a lobby team have a solo team above every lobby team, so they sort last.
     const order = [...world.players].sort((a, b) => a.team - b.team || a.id - b.id);
     let lastTeam = -1;
@@ -173,12 +224,14 @@ export class Sidebar {
       .map((p) => {
         const i = p.id;
         const info = players[i];
-        const status = p.defeated ? 'out' : info?.ai ? 'AI' : connected[i] === false ? 'away' : '';
-        const cls = ['player', p.defeated ? 'defeated' : '', i === me ? 'me' : ''].filter(Boolean).join(' ');
+        let status = p.defeated ? 'out' : info?.ai ? 'AI' : connected[i] === false ? 'away' : '';
+        if (economy && !p.defeated) status = `$${p.credits} · ⚡${p.powerUsed}/${p.powerProduced}${status ? ` · ${status}` : ''}`;
+        const cls = ['player', p.defeated ? 'defeated' : '', i === me ? 'me' : '', economy && isLowPower(p) ? 'low' : ''].filter(Boolean).join(' ');
         const lobbyTeam = info?.team ?? 0;
-        const header = lobbyTeam && p.team !== lastTeam ? `<div class="team-header">Team ${lobbyTeam}${p.team === world.players[me].team ? ' (yours)' : ''}</div>` : '';
+        const yours = me >= 0 && p.team === world.players[me].team ? (this.game.spectator ? ' (viewing)' : ' (yours)') : '';
+        const header = lobbyTeam && p.team !== lastTeam ? `<div class="team-header">Team ${lobbyTeam}${yours}</div>` : '';
         lastTeam = p.team;
-        return `${header}<div class="${cls}"><i style="background:${TEAM[i].css}"></i><span>${escapeHtml(info?.name ?? `Player ${i + 1}`)}</span><em>${status}</em></div>`;
+        return `${header}<div class="${cls}" data-player="${i}"><i style="background:${TEAM[i].css}"></i><span>${escapeHtml(info?.name ?? `Player ${i + 1}`)}</span><em>${status}</em></div>`;
       })
       .join('');
     if (this.playerList.innerHTML !== html) this.playerList.innerHTML = html;

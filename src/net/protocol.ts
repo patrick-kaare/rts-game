@@ -38,6 +38,8 @@ export interface SlotInfo {
   team: number;
   /** Only meaningful for AI slots. */
   difficulty: Difficulty;
+  /** The host (slot 0) watches instead of playing. */
+  spectator: boolean;
 }
 
 /** A participant in a running match; the array index is the sim player id. */
@@ -49,7 +51,10 @@ export interface MatchPlayer {
   difficulty: Difficulty;
 }
 
-/** A chat line. `player` is the sender's sim player id, or -1 when sent in the lobby. */
+/**
+ * A chat line. `player` is the sender's sim player id, or -1 when sent in the
+ * lobby or by a spectator. `slot` is -1 for watchers, who have no slot.
+ */
 export interface ChatMsg {
   slot: number;
   player: number;
@@ -57,7 +62,12 @@ export interface ChatMsg {
   text: string;
   /** Only the sender's team sees it. */
   allies: boolean;
+  /** Sent by a spectator during the match: only spectators see it. */
+  spectator: boolean;
 }
+
+/** Most watchers one room takes. */
+export const MAX_WATCHERS = 20;
 
 export const MAX_CHAT = 200;
 /** How many chat lines the server and clients keep. */
@@ -75,9 +85,12 @@ export type ClientMsg =
   /**
    * `slots` is the setup of every slot after the host's own (slot 0), e.g. from an offline lobby.
    * `teams` and `difficulties` hold every slot's setting, the host's included.
+   * `spectate`: the host watches instead of playing.
    */
-  | { t: 'create'; name: string; rules: GameRules; slots: SlotSetting[]; teams: number[]; difficulties: Difficulty[] }
+  | { t: 'create'; name: string; rules: GameRules; slots: SlotSetting[]; teams: number[]; difficulties: Difficulty[]; spectate?: boolean }
   | { t: 'join'; code: string; name: string }
+  /** Watch a game as a spectator, in the lobby or mid-match. Takes no slot. */
+  | { t: 'watch'; code: string; name: string }
   | { t: 'rejoin'; code: string; token: string }
   /** Host only. Setting a human's seat to 'open' removes them. */
   | { t: 'slot'; index: number; kind: SlotSetting }
@@ -87,15 +100,22 @@ export type ClientMsg =
   | { t: 'difficulty'; index: number; difficulty: Difficulty }
   /** Host only, in the lobby. */
   | { t: 'rules'; rules: GameRules }
+  /** Host only, in the lobby: watch the match instead of playing in it. */
+  | { t: 'spectate'; on: boolean }
   | { t: 'start' }
   | { t: 'cmd'; cmd: Command }
   | { t: 'chat'; text: string; allies: boolean }
   | { t: 'hash'; tick: number; hash: number };
 
 export type ServerMsg =
-  | { t: 'joined'; code: string; slot: number; token: string }
-  | { t: 'lobby'; slots: SlotInfo[]; rules: GameRules }
-  /** Sent when the match starts, and again on every rejoin. `tick` is the next tick the server will run. */
+  /** `slot` is -1 for watchers. */
+  | { t: 'joined'; code: string; slot: number; token: string; spectator: boolean }
+  /** `spectators` are the watchers' names (a spectating host shows in its slot). */
+  | { t: 'lobby'; slots: SlotInfo[]; rules: GameRules; spectators: string[] }
+  /**
+   * Sent when the match starts, and again on every rejoin. `tick` is the next tick the server will run.
+   * `you` is -1 for spectators.
+   */
   | { t: 'start'; seed: number; rules: GameRules; players: MatchPlayer[]; you: number; tick: number; log: TickBundle[] }
   | { t: 'tick'; tick: number; cmds: PlayerCommand[] }
   /** Per sim player: is a human connected (AIs are always true). */

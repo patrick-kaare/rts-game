@@ -16,6 +16,7 @@ class Client {
   world: World | null = null;
   info: StartInfo | null = null;
   lobby: SlotInfo[] = [];
+  spectators: string[] = [];
   rules: GameRules | null = null;
   errors: string[] = [];
   desyncs: number[] = [];
@@ -23,9 +24,10 @@ class Client {
 
   constructor(url: string) {
     this.net = new NetTransport(url);
-    this.net.onLobby = (s, r) => {
+    this.net.onLobby = (s, r, w) => {
       this.lobby = s;
       this.rules = r;
+      this.spectators = w;
     };
     this.net.onStart = (info) => {
       this.info = info;
@@ -42,9 +44,9 @@ class Client {
     this.net.create(name, rules, slots, teams, difficulties);
   }
 
-  /** Chat lines received so far, as "name: text" (allies lines get a "*"). */
+  /** Chat lines received so far, as "name: text" (allies lines get a "*", spectators' a "~"). */
   get chat(): string[] {
-    return this.net.chatLog.map((m) => `${m.allies ? '*' : ''}${m.name}: ${m.text}`);
+    return this.net.chatLog.map((m) => `${m.allies ? '*' : ''}${m.spectator ? '~' : ''}${m.name}: ${m.text}`);
   }
 
   /** Run every tick that has arrived. */
@@ -401,5 +403,124 @@ describe('game server', () => {
     await runTicks(room, 200, a, b);
     expect(room['log']).toEqual([]);
     expect(stateHash(a.world!)).toBe(room.serverHash);
+  });
+});
+
+describe('spectators', () => {
+  it('can watch from the lobby without taking a slot, and stay in sync', async () => {
+    const a = client();
+    a.create('Alice');
+    await until(() => a.net.slot === 0);
+    const w = client();
+    w.net.watch(a.net.code, 'Wanda');
+    await until(() => w.net.spectator && w.lobby.length > 0 && a.spectators.length === 1);
+    expect(w.net.slot).toBe(-1);
+    expect(a.spectators).toEqual(['Wanda']);
+    expect(a.lobby.filter((s) => s.kind === 'human').length).toBe(1);
+    // Watchers can't run the lobby.
+    w.net.start();
+    await new Promise((r) => setTimeout(r, 50));
+    const room = server.rooms.get(a.net.code)!;
+    expect(room.phase).toBe('lobby');
+
+    a.net.start();
+    await until(() => !!a.info && !!w.info);
+    expect(w.info!.you).toBe(-1);
+    expect(w.info!.players.length).toBe(2);
+    await runTicks(room, 300, a, w);
+    expect(stateHash(w.world!)).toBe(room.serverHash);
+  });
+
+  it('can join mid-match, catch up, and never command anyone', async () => {
+    const { a, b, room } = await startMatch();
+    await runTicks(room, 150, a, b);
+    const w = client();
+    w.net.watch(a.net.code, 'Wanda');
+    await until(() => !!w.info);
+    expect(w.info!.you).toBe(-1);
+    w.catchUp();
+    expect(stateHash(w.world!)).toBe(stateHash(a.world!));
+
+    const alices = [...w.world!.entities.values()].filter((e) => e.owner === 0 && e.kind === 'unit');
+    w.net.send(-1, { t: 'move', ids: alices.map((e) => e.id), x: 30, y: 30 });
+    w.net.send(-1, { t: 'build', item: 'power' });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(room['pending']).toEqual([]);
+    await runTicks(room, 100, a, b, w);
+    expect(stateHash(w.world!)).toBe(room.serverHash);
+
+    // Rejoining with the token gets the spectator seat back.
+    const token = w.net.token;
+    w.net.close();
+    const w2 = client();
+    w2.net.rejoin(a.net.code, token);
+    await until(() => !!w2.info);
+    expect(w2.net.spectator).toBe(true);
+    expect(w2.info!.you).toBe(-1);
+  });
+
+  it('lets the host spectate a match between others', async () => {
+    const a = client();
+    a.create('Alice', DEFAULT_RULES, ['ai', ...Array<SlotSetting>(8).fill('closed')]);
+    await until(() => a.net.slot === 0);
+    a.net.setSpectate(true);
+    await until(() => a.lobby[0]?.spectator === true && a.net.spectator);
+    // Only one player left.
+    a.net.start();
+    await until(() => a.errors.length > 0);
+    expect(a.errors[0]).toMatch(/two players/);
+
+    a.net.setSlot(2, 'ai');
+    await until(() => a.lobby[2]?.kind === 'ai');
+    a.net.start();
+    await until(() => !!a.info);
+    expect(a.info!.you).toBe(-1);
+    expect(a.info!.players.map((p) => p.ai)).toEqual([true, true]);
+    const room = server.rooms.get(a.net.code)!;
+    // The host's commands go nowhere.
+    a.net.send(-1, { t: 'build', item: 'power' });
+    await runTicks(room, 200, a);
+    expect(room['log'].every(([, cmds]) => cmds.every((c) => c.player >= 0 && c.player < 2))).toBe(true);
+    expect(stateHash(a.world!)).toBe(room.serverHash);
+  });
+
+  it('keeps spectator chat among spectators during the match, and shows them everything', async () => {
+    const a = client();
+    a.create('Alice', DEFAULT_RULES, ['open', ...Array<SlotSetting>(8).fill('closed')], [1, 1, 0, 0, 0, 0, 0, 0, 0, 0]);
+    await until(() => a.net.slot === 0);
+    const b = client();
+    b.net.join(a.net.code, 'Bob');
+    await until(() => a.lobby[1]?.kind === 'human');
+    const w = client();
+    w.net.watch(a.net.code, 'Wanda');
+    await until(() => !!w.net.token);
+    // In the lobby spectators talk to everyone.
+    w.net.chat('hi all', false);
+    await until(() => a.chat.length === 1 && b.chat.length === 1);
+    // Bob is on a team with nobody but Alice; give him another side to start.
+    a.net.setTeam(1, 2);
+    await until(() => a.lobby[1]?.team === 2);
+    a.net.start();
+    await until(() => !!a.info && !!w.info);
+
+    w.net.chat('alice is winning', false);
+    // Spectators have no allies.
+    w.net.chat('nope', true);
+    a.net.chat('team plan', true);
+    a.net.chat('gl', false);
+    await until(() => w.chat.length === 4 && a.chat.length === 3);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(w.chat).toEqual(['Wanda: hi all', '~Wanda: alice is winning', '*Alice: team plan', 'Alice: gl']);
+    expect(a.chat).toEqual(['Wanda: hi all', '*Alice: team plan', 'Alice: gl']);
+    expect(b.chat).toEqual(['Wanda: hi all', 'Alice: gl']);
+    expect(w.net.chatLog[1].slot).toBe(-1);
+
+    // A rejoining player still doesn't get spectator lines.
+    const token = b.net.token;
+    b.net.close();
+    const b2 = client();
+    b2.net.rejoin(a.net.code, token);
+    await until(() => !!b2.info && b2.chat.length === 2);
+    expect(b2.chat).toEqual(b.chat);
   });
 });

@@ -6,6 +6,7 @@ import {
   CHAT_HISTORY,
   HASH_INTERVAL,
   MAX_CHAT,
+  MAX_WATCHERS,
   cleanText,
   SLOT_COUNT,
   cleanCommand,
@@ -40,9 +41,22 @@ interface Seat {
   socket: WebSocket | null;
   team: number;
   difficulty: Difficulty;
+  /** Only on the host's seat: watch the match instead of playing. */
+  spectate: boolean;
   /** When this seat's recent chat lines were sent, for the rate limit. */
   chatTimes: number[];
 }
+
+/** A spectator who joined with Watch. Kept after disconnecting, so the token still rejoins. */
+interface Watcher {
+  name: string;
+  token: string;
+  socket: WebSocket | null;
+  chatTimes: number[];
+}
+
+/** Who sent a chat line or hash: a seat index, or a watcher. */
+type Sender = number | Watcher;
 
 /**
  * One lobby and, once started, one match. The room runs its own copy of the
@@ -51,6 +65,7 @@ interface Seat {
  */
 export class Room {
   readonly seats: Seat[] = [];
+  readonly watchers: Watcher[] = [];
   phase: 'lobby' | 'running' | 'finished' = 'lobby';
   /** When the room last had nobody connected, or became finished (ms since epoch). */
   idleSince = 0;
@@ -81,18 +96,20 @@ export class Room {
     slots: unknown = [],
     teams: unknown = [],
     difficulties: unknown = [],
+    spectate: unknown = false,
   ) {
     this.rules = isValidRules(rules) ? cleanRules(rules) : { ...DEFAULT_RULES };
     // Setups for slots 1 and up; slot 0 is the creator's.
     const setup = Array.isArray(slots) && slots.length === SLOT_COUNT - 1 && slots.every(isSlotSetting) ? slots : null;
     for (let i = 0; i < SLOT_COUNT; i++) {
       const kind = i === 0 ? 'open' : (setup?.[i - 1] ?? (i === 1 ? 'ai' : 'open'));
-      this.seats.push({ kind, name: '', token: '', socket: null, team: 0, difficulty: 'normal', chatTimes: [] });
+      this.seats.push({ kind, name: '', token: '', socket: null, team: 0, difficulty: 'normal', spectate: false, chatTimes: [] });
     }
     if (Array.isArray(teams) && teams.length === SLOT_COUNT && teams.every(isTeam)) teams.forEach((t, i) => (this.seats[i].team = t));
     if (Array.isArray(difficulties) && difficulties.length === SLOT_COUNT && difficulties.every(isDifficulty)) {
       difficulties.forEach((d, i) => (this.seats[i].difficulty = d));
     }
+    this.seats[0].spectate = spectate === true;
   }
 
   /** Take the first open seat. Returns the seat index, or an error message. */
@@ -108,40 +125,75 @@ export class Room {
     return slot;
   }
 
-  /** Reattach a socket to the seat holding `token`. Returns the seat index or -1. */
-  rejoin(socket: WebSocket, token: string): number {
+  /** Watch as a spectator, in any phase. Returns an error message, or null. */
+  watch(socket: WebSocket, name: string): string | null {
+    if (this.watchers.length >= MAX_WATCHERS) {
+      // Make room by forgetting someone who left.
+      const gone = this.watchers.findIndex((w) => !w.socket);
+      if (gone < 0) return 'That game has too many spectators.';
+      this.watchers.splice(gone, 1);
+    }
+    const watcher: Watcher = { name: cleanText(name, MAX_NAME) || 'Spectator', token: randomUUID(), socket: null, chatTimes: [] };
+    this.watchers.push(watcher);
+    this.attachWatcher(watcher, socket);
+    return null;
+  }
+
+  /** Reattach a socket to the seat or watcher holding `token`. Returns false if there is none. */
+  rejoin(socket: WebSocket, token: string): boolean {
     const slot = this.seats.findIndex((s) => s.kind === 'human' && s.token === token);
-    if (slot < 0) return -1;
-    const old = this.seats[slot].socket;
+    const watcher = slot < 0 ? this.watchers.find((w) => w.token === token) : undefined;
+    if (slot < 0 && !watcher) return false;
+    const old = slot >= 0 ? this.seats[slot].socket : watcher!.socket;
     if (old && old !== socket) old.close(4000, 'Joined from another tab.');
-    this.attach(slot, socket);
-    return slot;
+    if (watcher) this.attachWatcher(watcher, socket);
+    else this.attach(slot, socket);
+    return true;
   }
 
   private attach(slot: number, socket: WebSocket) {
     const seat = this.seats[slot];
     seat.socket = socket;
     this.idleSince = 0;
-    send(socket, { t: 'joined', code: this.code, slot, token: seat.token });
+    send(socket, { t: 'joined', code: this.code, slot, token: seat.token, spectator: seat.spectate });
     if (this.phase === 'lobby') this.broadcastLobby();
     else {
       send(socket, this.startMsg(this.players.indexOf(slot)));
       this.broadcastPresence();
     }
-    send(socket, { t: 'chatLog', msgs: this.chatLog.filter((c) => this.canSee(slot, c)).map((c) => c.msg) });
+    this.sendChatLog(slot, socket);
+  }
+
+  private attachWatcher(watcher: Watcher, socket: WebSocket) {
+    watcher.socket = socket;
+    this.idleSince = 0;
+    send(socket, { t: 'joined', code: this.code, slot: -1, token: watcher.token, spectator: true });
+    if (this.phase === 'lobby') this.broadcastLobby();
+    else send(socket, this.startMsg(-1));
+    this.sendChatLog(watcher, socket);
+  }
+
+  private sendChatLog(to: Sender, socket: WebSocket) {
+    send(socket, { t: 'chatLog', msgs: this.chatLog.filter((c) => this.canSee(to, c)).map((c) => c.msg) });
   }
 
   detach(socket: WebSocket) {
     const slot = this.seats.findIndex((s) => s.socket === socket);
-    if (slot < 0) return;
-    this.seats[slot].socket = null;
+    const watcher = this.watcherOf(socket);
+    if (slot >= 0) this.seats[slot].socket = null;
+    else if (watcher) watcher.socket = null;
+    else return;
     if (!this.anyoneConnected() && !this.idleSince) this.idleSince = Date.now();
     if (this.phase === 'lobby') this.broadcastLobby();
-    else this.broadcastPresence();
+    else if (slot >= 0) this.broadcastPresence();
   }
 
   slotOf(socket: WebSocket): number {
     return this.seats.findIndex((s) => s.socket === socket);
+  }
+
+  watcherOf(socket: WebSocket): Watcher | undefined {
+    return this.watchers.find((w) => w.socket === socket);
   }
 
   /** Host changes a slot. Setting a human's seat to 'open' removes them. */
@@ -155,7 +207,7 @@ export class Room {
       if (kind !== 'open') return;
       seat.socket?.close(4001, 'Removed by the host.');
     }
-    this.seats[index] = { kind, name: '', token: '', socket: null, team: seat.team, difficulty: seat.difficulty, chatTimes: [] };
+    this.seats[index] = { kind, name: '', token: '', socket: null, team: seat.team, difficulty: seat.difficulty, spectate: false, chatTimes: [] };
     this.broadcastLobby();
   }
 
@@ -185,9 +237,17 @@ export class Room {
     this.broadcastLobby();
   }
 
+  /** Host switches between playing and watching. */
+  setSpectate(from: number, on: unknown) {
+    if (from !== 0 || this.phase !== 'lobby' || typeof on !== 'boolean') return;
+    if (this.seats[0].spectate === on) return;
+    this.seats[0].spectate = on;
+    this.broadcastLobby();
+  }
+
   start(from: number): string | null {
     if (from !== 0 || this.phase !== 'lobby') return null;
-    const taken = this.seats.map((s, i) => [s, i] as const).filter(([s]) => s.kind === 'human' || s.kind === 'ai');
+    const taken = this.seats.map((s, i) => [s, i] as const).filter(([s]) => (s.kind === 'human' && !s.spectate) || s.kind === 'ai');
     if (taken.length < 2) return 'You need at least two players.';
     if (sideCount(taken.map(([s]) => s.team)) < 2) return 'Everyone is on the same team.';
     this.players = taken.map(([, i]) => i);
@@ -209,10 +269,10 @@ export class Room {
     };
     this.ais = this.matchPlayers.flatMap((p, id) => (p.ai ? [new AIController(id, transport)] : []));
     this.phase = 'running';
-    this.players.forEach((slot, id) => {
-      const socket = this.seats[slot].socket;
-      if (socket) send(socket, this.startMsg(id));
+    this.seats.forEach((s, slot) => {
+      if (s.socket) send(s.socket, this.startMsg(this.players.indexOf(slot)));
     });
+    for (const w of this.watchers) if (w.socket) send(w.socket, this.startMsg(-1));
     this.broadcastPresence();
     this.last = performance.now();
     if (!this.manualClock) this.timer = setInterval(() => this.pump(), TICK_MS / 2);
@@ -227,47 +287,74 @@ export class Room {
     this.pending.push({ player, cmd: cleanCommand(cmd as Command) });
   }
 
-  /** A chat line from a human seat. Allies-only lines need a team; extra lines over the rate limit are dropped. */
-  chat(from: number, text: unknown, allies: unknown) {
-    const seat = this.seats[from];
+  /**
+   * A chat line from a human seat or a watcher. Allies-only lines need a team
+   * (spectators have none); extra lines over the rate limit are dropped.
+   * Spectators' lines during the match only reach other spectators.
+   */
+  chat(from: Sender, text: unknown, allies: unknown) {
+    const seat = typeof from === 'number' ? this.seats[from] : null;
+    const sender = seat ?? (from as Watcher);
     const clean = cleanText(text, MAX_CHAT);
-    if (seat?.kind !== 'human' || !clean) return;
-    if (allies === true && seat.team === 0) return;
+    if ((seat && seat.kind !== 'human') || !clean) return;
+    const spectator = this.isSpectator(from);
+    const team = seat && !spectator ? seat.team : 0;
+    if (allies === true && team === 0) return;
     const now = Date.now();
-    seat.chatTimes = seat.chatTimes.filter((t) => now - t < CHAT_WINDOW_MS);
-    if (seat.chatTimes.length >= CHAT_BURST) return;
-    seat.chatTimes.push(now);
-    const msg: ChatMsg = { slot: from, player: this.players.indexOf(from), name: seat.name, text: clean, allies: allies === true };
-    const entry = { msg, team: seat.team };
+    sender.chatTimes = sender.chatTimes.filter((t) => now - t < CHAT_WINDOW_MS);
+    if (sender.chatTimes.length >= CHAT_BURST) return;
+    sender.chatTimes.push(now);
+    const msg: ChatMsg = {
+      slot: typeof from === 'number' ? from : -1,
+      player: typeof from === 'number' ? this.players.indexOf(from) : -1,
+      name: sender.name,
+      text: clean,
+      allies: allies === true,
+      spectator: spectator && this.phase !== 'lobby',
+    };
+    const entry = { msg, team };
     this.chatLog.push(entry);
     if (this.chatLog.length > CHAT_HISTORY) this.chatLog.shift();
     const data = JSON.stringify({ t: 'chat', msg } satisfies ServerMsg);
-    this.seats.forEach((s, i) => {
-      if (s.socket && s.socket.readyState === s.socket.OPEN && this.canSee(i, entry)) s.socket.send(data);
-    });
+    const deliver = (to: Sender, socket: WebSocket | null) => {
+      if (socket && socket.readyState === socket.OPEN && this.canSee(to, entry)) socket.send(data);
+    };
+    this.seats.forEach((s, i) => deliver(i, s.socket));
+    for (const w of this.watchers) deliver(w, w.socket);
   }
 
-  private canSee(slot: number, c: { msg: ChatMsg; team: number }): boolean {
-    return !c.msg.allies || this.seats[slot].team === c.team;
+  /** Watchers and a spectating host. */
+  private isSpectator(who: Sender): boolean {
+    return typeof who !== 'number' || this.seats[who].spectate;
+  }
+
+  /** Spectators see every line; players never see spectators' lines, and allies lines only from their team. */
+  private canSee(who: Sender, c: { msg: ChatMsg; team: number }): boolean {
+    if (this.isSpectator(who)) return true;
+    if (c.msg.spectator) return false;
+    return !c.msg.allies || this.seats[who as number].team === c.team;
   }
 
   /** Compare a client's hash against ours; tell everyone on a mismatch. */
-  checkHash(from: number, tick: unknown, hash: unknown) {
+  checkHash(from: Sender, tick: unknown, hash: unknown) {
     if (!this.world || typeof tick !== 'number' || typeof hash !== 'number') return;
     const ours = this.hashes.get(tick);
     if (ours === undefined || ours === hash) return;
-    console.warn(`[room ${this.code}] desync at tick ${tick}: seat ${from} has ${hash}, server has ${ours}`);
+    const who = typeof from === 'number' ? `seat ${from}` : `watcher ${from.name}`;
+    console.warn(`[room ${this.code}] desync at tick ${tick}: ${who} has ${hash}, server has ${ours}`);
     this.broadcast({ t: 'desync', tick });
   }
 
+  /** Players and spectators alike: anyone watching keeps the clock going. */
   anyoneConnected(): boolean {
-    return this.seats.some((s) => s.socket);
+    return this.seats.some((s) => s.socket) || this.watchers.some((w) => w.socket);
   }
 
   close() {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     for (const s of this.seats) s.socket?.close(1001, 'Room closed.');
+    for (const w of this.watchers) w.socket?.close(1001, 'Room closed.');
   }
 
   /** Run every tick that is due. The clock stands still while no human is connected. */
@@ -336,8 +423,10 @@ export class Room {
       connected: !!s.socket,
       team: s.team,
       difficulty: s.difficulty,
+      spectator: s.spectate,
     }));
-    this.broadcast({ t: 'lobby', slots, rules: this.rules });
+    const spectators = this.watchers.filter((w) => w.socket).map((w) => w.name);
+    this.broadcast({ t: 'lobby', slots, rules: this.rules, spectators });
   }
 
   private broadcastPresence() {
@@ -347,7 +436,7 @@ export class Room {
 
   private broadcast(msg: ServerMsg) {
     const data = JSON.stringify(msg);
-    for (const s of this.seats) if (s.socket && s.socket.readyState === s.socket.OPEN) s.socket.send(data);
+    for (const s of [...this.seats, ...this.watchers]) if (s.socket && s.socket.readyState === s.socket.OPEN) s.socket.send(data);
   }
 }
 

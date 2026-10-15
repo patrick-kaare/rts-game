@@ -64,7 +64,10 @@ export class Renderer {
   private fogTick = -1;
   private remembered = new Map<number, RememberedBuilding>();
   private world!: World;
-  private localPlayer = 0;
+  /** Whose eyes we see through: a player id, or -1 for the whole map (spectators). */
+  private view = 0;
+  /** Every tile visible, for the whole map view. */
+  private allVisible = new Uint8Array(0);
 
   constructor(private app: Application) {
     this.fogCanvas.width = 64;
@@ -77,9 +80,10 @@ export class Renderer {
     app.stage.addChild(this.root, this.screen);
   }
 
-  setWorld(world: World, localPlayer: number) {
+  setWorld(world: World, view: number) {
     this.world = world;
-    this.localPlayer = localPlayer;
+    this.view = view;
+    if (this.allVisible.length !== world.w * world.h) this.allVisible = new Uint8Array(world.w * world.h).fill(1);
     this.remembered.clear();
     this.effects = [];
     this.fx.reset();
@@ -106,6 +110,39 @@ export class Renderer {
     this.fogSprite.scale.set(TILE_PX);
     this.fogSprite.position.set(-FOG_MARGIN * TILE_PX, -FOG_MARGIN * TILE_PX);
     this.drawTerrain();
+  }
+
+  /**
+   * Spectators switching view. The building memory starts over; enemy
+   * buildings on tiles the player has explored stand in for what they remember.
+   */
+  setView(view: number) {
+    this.view = view;
+    this.remembered.clear();
+    this.fogTick = -1;
+    if (view < 0) return;
+    const world = this.world;
+    const exp = world.explored[view];
+    for (const e of world.entities.values()) {
+      if (e.kind !== 'building' || this.friendly(e.owner)) continue;
+      let seen = false;
+      for (let y = e.ty; y < e.ty + e.h && !seen; y++) for (let x = e.tx; x < e.tx + e.w; x++) if (exp[y * world.w + x]) seen = true;
+      if (seen) this.remembered.set(e.id, { id: e.id, owner: e.owner, type: e.type, tx: e.tx, ty: e.ty, w: e.w, h: e.h });
+    }
+  }
+
+  /** Tiles visible in the current view. */
+  private get visible(): Uint8Array {
+    return this.view < 0 ? this.allVisible : this.world.visible[this.view];
+  }
+
+  private get explored(): Uint8Array {
+    return this.view < 0 ? this.allVisible : this.world.explored[this.view];
+  }
+
+  /** Owned by the viewed player or an ally; the whole map view counts everyone. Drawn live, never from memory. */
+  private friendly(owner: number): boolean {
+    return this.view < 0 || areAllies(this.world, owner, this.view);
   }
 
   handleEvents(events: SimEvent[]) {
@@ -142,8 +179,8 @@ export class Renderer {
   render(alpha: number, state: ClientState, camera: Camera) {
     const world = this.world;
     this.root.position.set(-Math.round(camera.x), -Math.round(camera.y));
-    const me = state.localPlayer;
-    const visible = world.visible[me];
+    const me = this.view;
+    const visible = this.visible;
     const view = { x0: camera.x - 64, y0: camera.y - 64, x1: camera.x + camera.viewW + 64, y1: camera.y + camera.viewH + 64 };
 
     if (world.oreVersion !== this.oreVersion) {
@@ -159,7 +196,7 @@ export class Renderer {
     // Buildings: own and allied ones live, enemy ones from memory (last seen state).
     const b = this.buildings.clear();
     for (const e of world.entities.values()) {
-      if (e.kind !== 'building' || !areAllies(world, e.owner, me)) continue;
+      if (e.kind !== 'building' || !this.friendly(e.owner)) continue;
       drawBuilding(b, e.type, e.tx * TILE_PX, e.ty * TILE_PX, e.w, e.h, TEAM[e.owner], isOffline(world, e), aimOf(e));
     }
     for (const r of this.remembered.values()) {
@@ -221,7 +258,7 @@ export class Renderer {
   }
 
   private buildingVisible(e: Entity): boolean {
-    const vis = this.world.visible[this.localPlayer];
+    const vis = this.visible;
     for (let y = e.ty; y < e.ty + e.h; y++) for (let x = e.tx; x < e.tx + e.w; x++) if (vis[y * this.world.w + x]) return true;
     return false;
   }
@@ -229,16 +266,15 @@ export class Renderer {
   /** Update what the local player remembers about enemy buildings. */
   private updateMemory() {
     const world = this.world;
-    const me = this.localPlayer;
     for (const e of world.entities.values()) {
-      if (e.kind === 'building' && !areAllies(world, e.owner, me) && this.buildingVisible(e)) {
+      if (e.kind === 'building' && !this.friendly(e.owner) && this.buildingVisible(e)) {
         this.remembered.set(e.id, { id: e.id, owner: e.owner, type: e.type, tx: e.tx, ty: e.ty, w: e.w, h: e.h });
       }
     }
     // Forget buildings we can see are gone.
     for (const r of this.remembered.values()) {
       if (world.entities.has(r.id)) continue;
-      const vis = world.visible[me];
+      const vis = this.visible;
       let seen = false;
       for (let y = r.ty; y < r.ty + r.h && !seen; y++) for (let x = r.tx; x < r.tx + r.w; x++) if (vis[y * world.w + x]) seen = true;
       if (seen) this.remembered.delete(r.id);
@@ -465,8 +501,8 @@ export class Renderer {
 
   private updateFog() {
     const world = this.world;
-    const vis = world.visible[this.localPlayer];
-    const exp = world.explored[this.localPlayer];
+    const vis = this.visible;
+    const exp = this.explored;
     const data = this.fogImage.data;
     const fw = world.w + FOG_MARGIN * 2;
     for (let y = 0; y < world.h; y++) {

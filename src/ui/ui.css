@@ -354,6 +354,33 @@ body {
   text-decoration: line-through;
 }
 
+.players.pickable .player {
+  cursor: pointer;
+}
+
+.players.pickable .player:hover span {
+  text-decoration: underline;
+}
+
+.player.low em {
+  color: var(--warn);
+}
+
+.stats[hidden],
+.section[hidden],
+.spectate[hidden] {
+  display: none;
+}
+
+.spectate select {
+  max-width: 60%;
+}
+
+/* Spectators see a player's build menu but can't use it. */
+.section.readonly .item {
+  pointer-events: none;
+}
+
 /* Start menu and game lobby. */
 #lobby {
   position: fixed;
@@ -576,6 +603,10 @@ body {
 .chat-line em {
   font-style: normal;
   color: var(--ok);
+}
+
+.chat-line.spectators em {
+  color: var(--muted);
 }
 
 .chat-form {

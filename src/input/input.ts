@@ -119,6 +119,7 @@ export class Input {
    * Ctrl or Shift + 1–9 saves the selection (browsers may keep Ctrl+digit for
    * tab switching, hence Shift), 1–9 recalls it, pressing it twice centers the view.
    * Online, Enter opens the chat (Shift+Enter: allies only).
+   * Spectators have no groups: 0 shows the whole map, 1–9 that player's view.
    */
   private onKey(ev: KeyboardEvent) {
     if (ev.target instanceof HTMLInputElement || ev.target instanceof HTMLSelectElement || !this.game.world) return;
@@ -129,6 +130,15 @@ export class Input {
       this.keys.clear();
       this.game.openChat(ev.shiftKey);
       return;
+    }
+    if (this.game.spectator) {
+      const d = /^Digit([0-9])$/.exec(ev.code);
+      if (d && !ev.altKey && !ev.metaKey && !ev.ctrlKey) {
+        ev.preventDefault();
+        const n = Number(d[1]);
+        if (!ev.repeat && n <= this.game.world.players.length) this.game.setView(n - 1);
+        return;
+      }
     }
     const digit = /^Digit([1-9])$/.exec(ev.code);
     if (digit) {
@@ -198,16 +208,16 @@ export class Input {
     return out;
   }
 
-  /** Entity under a viewport point, respecting fog. */
+  /** Entity under a viewport point, respecting the fog of the player whose view is shown. */
   pick(p: { x: number; y: number }): Entity | null {
     const world = this.game.world;
-    const me = this.state.localPlayer;
+    const me = this.state.view;
     const w = this.toWorldPx(p);
     let best: Entity | null = null;
     let bestD = Infinity;
     for (const e of world.entities.values()) {
       if (e.kind !== 'unit') continue;
-      if (e.owner !== me && !world.visible[me][Math.floor(e.y / TILE) * world.w + Math.floor(e.x / TILE)]) continue;
+      if (me >= 0 && e.owner !== me && !world.visible[me][Math.floor(e.y / TILE) * world.w + Math.floor(e.x / TILE)]) continue;
       const r = unitDef(e).radius * S + 5;
       const d = (e.x * S - w.x) ** 2 + (e.y * S - w.y) ** 2;
       if (d < r * r && d < bestD) {
@@ -222,7 +232,7 @@ export class Input {
     const id = world.buildingAt[ty * world.w + tx];
     if (!id) return null;
     const b = world.entities.get(id)!;
-    if (b.owner !== me && !world.explored[me][ty * world.w + tx]) return null;
+    if (me >= 0 && b.owner !== me && !world.explored[me][ty * world.w + tx]) return null;
     return b;
   }
 

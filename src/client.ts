@@ -8,7 +8,13 @@ export const TILE_PX = 32;
  * each player has their own.
  */
 export interface ClientState {
+  /** The player we control, or -1 when spectating. */
   localPlayer: number;
+  /**
+   * Whose eyes the map, minimap and sidebar show: always localPlayer for a
+   * player; for a spectator a player id, or -1 for the whole map.
+   */
+  view: number;
   selection: Set<number>;
   /** Control groups: number key 1–9 → entity ids. */
   groups: Map<number, Set<number>>;
@@ -26,6 +32,7 @@ export interface ClientState {
 export function createClientState(localPlayer: number): ClientState {
   return {
     localPlayer,
+    view: localPlayer,
     selection: new Set(),
     groups: new Map(),
     placing: null,

@@ -18,10 +18,11 @@ import {
   type GameRules,
   type MapSizeRule,
 } from '../sim/rules';
-import { ChatBox } from './chat';
+import { ChatBox, chatColor } from './chat';
 
 export interface LobbyHooks {
-  playLocal(seed: number, players: MatchPlayer[], rules: GameRules): void;
+  /** `spectator`: the host watches; every player is an AI. */
+  playLocal(seed: number, players: MatchPlayer[], rules: GameRules, spectator: boolean): void;
   playOnline(net: NetTransport, info: StartInfo): void;
 }
 
@@ -89,6 +90,7 @@ function localSlots(name: string): SlotInfo[] {
     connected: true,
     team: 0,
     difficulty: 'normal',
+    spectator: false,
   }));
 }
 
@@ -129,12 +131,14 @@ export class Lobby {
   readonly el = document.createElement('div');
   private net: NetTransport | null = null;
   private slots: SlotInfo[] = [];
+  /** Online: names of people watching with Watch. */
+  private spectators: string[] = [];
   private rules: GameRules = loadRules();
   /** The offline lobby while it is moving to the server, restored if that fails. */
   private pendingLocal: SlotInfo[] | null = null;
   private boxEl: HTMLDivElement | null = null;
   /** Online lobbies only. Lives outside the box, so re-rendering the box keeps the draft and focus. */
-  private chat = new ChatBox('lobby', (m) => TEAM[m.slot]?.css ?? '');
+  private chat = new ChatBox('lobby', chatColor);
 
   constructor(private hooks: LobbyHooks) {
     this.el.id = 'lobby';
@@ -192,9 +196,11 @@ export class Lobby {
       tokens.set(code, token);
       setRoomInUrl(code);
     };
-    net.onLobby = (slots, rules) => {
+    net.onLobby = (slots, rules, spectators) => {
       this.slots = slots;
-      this.chat.canAllies = (slots[net.slot]?.team ?? 0) > 0;
+      this.spectators = spectators;
+      const mine = slots[net.slot];
+      this.chat.canAllies = !!mine && !mine.spectator && mine.team > 0;
       this.rules = rules;
       this.renderRoom();
     };
@@ -250,8 +256,16 @@ export class Lobby {
       this.connect().join(c, name.value);
     });
     codeIn.addEventListener('keydown', (ev) => ev.key === 'Enter' && join.click());
+    const watch = button('Watch', () => {
+      const c = codeIn.value.trim().toUpperCase();
+      if (!c) return codeIn.focus();
+      store.set(NAME_KEY, name.value.trim());
+      this.renderMessage(`Watching ${c}…`);
+      this.connect().watch(c, name.value);
+    }, 'secondary');
+    watch.title = 'Watch as a spectator, also once the game has started';
 
-    box.append(h('h1', 'Shape RTS'), row(label('Name'), name), row(create), h('h2', 'Join a game'), row(codeIn, join));
+    box.append(h('h1', 'Shape RTS'), row(label('Name'), name), row(create), h('h2', 'Join a game'), row(codeIn, join, watch));
     if (error) box.append(p(error, 'error'));
     if (code) codeIn.focus();
   }
@@ -266,6 +280,7 @@ export class Lobby {
   /** The lobby of a new game, offline or on the server. */
   private renderRoom(error = '') {
     const net = this.online ? this.net : null;
+    // -1 for someone who joined with Watch.
     const you = net ? net.slot : 0;
     const isHost = you === 0;
     const box = this.box();
@@ -292,8 +307,14 @@ export class Lobby {
       if (s.kind === 'human') {
         const me = i === you ? ' (you)' : '';
         const host = net && i === 0 ? ' · host' : '';
-        r.append(h('span', `${s.name}${me}${host}${s.connected ? '' : ' · away'}`));
+        const watching = s.spectator ? ' · spectating' : '';
+        r.append(h('span', `${s.name}${me}${host}${watching}${s.connected ? '' : ' · away'}`));
         if (net && isHost && i !== 0) r.append(button('Remove', () => this.setSlot(i, 'open'), 'secondary small'));
+        if (isHost && i === 0) {
+          const toggle = button(s.spectator ? 'Play' : 'Spectate', () => this.setSpectate(!s.spectator), 'secondary small');
+          toggle.title = s.spectator ? 'Take part in the match' : 'Watch the match instead of playing';
+          r.append(toggle);
+        }
       } else if (isHost) {
         const sel = document.createElement('select');
         for (const v of ['open', 'ai', 'closed'] as const) {
@@ -305,23 +326,24 @@ export class Lobby {
         r.append(h('span', SLOT_TEXT[s.kind]));
       }
       if (s.kind === 'ai') r.append(this.difficultyPicker(i, s.difficulty, isHost));
-      if (s.kind === 'human' || s.kind === 'ai') r.append(this.teamPicker(i, s.team, isHost || i === you));
+      if ((s.kind === 'human' && !s.spectator) || s.kind === 'ai') r.append(this.teamPicker(i, s.team, isHost || i === you));
       list.append(r);
     });
     box.append(list);
+    if (this.online && this.spectators.length) box.append(p(`Spectators: ${this.spectators.join(', ')}`, 'hint'));
 
     box.append(h('h2', 'Rules'), this.rulesPanel(isHost));
     // Only online, next to the box. Left alone if already shown, so the input keeps its focus.
     this.chat.show(!!net);
 
-    const taken = this.slots.filter((s) => s.kind === 'human' || s.kind === 'ai');
+    const taken = this.slots.filter((s) => (s.kind === 'human' && !s.spectator) || s.kind === 'ai');
     const oneSide = taken.length >= 2 && sideCount(taken.map((s) => s.team)) < 2;
     const actions = row();
     if (isHost) {
       const start = button(`Start (${taken.length} players)`, () => this.start());
       start.disabled = taken.length < 2 || oneSide;
       actions.append(start);
-    } else actions.append(p('Waiting for the host to start…'));
+    } else actions.append(p(you < 0 ? 'Watching — waiting for the host to start…' : 'Waiting for the host to start…'));
     actions.append(button('Leave', () => this.leave(), 'secondary'));
     box.append(actions);
     if (oneSide) box.append(p('Everyone is on the same team. Put someone on another team to start.', 'error'));
@@ -424,7 +446,14 @@ export class Lobby {
   private setSlot(i: number, kind: SlotSetting) {
     if (this.online) return this.net!.setSlot(i, kind);
     if (kind === 'open') return this.goOnline(i);
-    this.slots[i] = { kind, name: '', connected: true, team: this.slots[i].team, difficulty: this.slots[i].difficulty };
+    this.slots[i] = { kind, name: '', connected: true, team: this.slots[i].team, difficulty: this.slots[i].difficulty, spectator: false };
+    this.renderRoom();
+  }
+
+  /** Host: watch the match instead of playing in it. */
+  private setSpectate(on: boolean) {
+    if (this.online) return this.net!.setSpectate(on);
+    this.slots[0] = { ...this.slots[0], spectator: on };
     this.renderRoom();
   }
 
@@ -441,6 +470,7 @@ export class Lobby {
       setup,
       local.map((s) => s.team),
       local.map((s) => s.difficulty),
+      local[0].spectator,
     );
   }
 
@@ -456,12 +486,13 @@ export class Lobby {
   private start() {
     if (this.online) return this.net!.start();
     const players: MatchPlayer[] = [];
+    const spectator = this.slots[0].spectator;
     this.slots.forEach((s, i) => {
-      if (s.kind === 'human') players.push({ name: s.name, ai: false, team: s.team, difficulty: 'normal' });
+      if (s.kind === 'human' && !s.spectator) players.push({ name: s.name, ai: false, team: s.team, difficulty: 'normal' });
       else if (s.kind === 'ai') players.push({ name: `AI ${i + 1}`, ai: true, team: s.team, difficulty: s.difficulty });
     });
     this.hide();
-    this.hooks.playLocal((Math.random() * 2 ** 31) | 0, players, { ...this.rules });
+    this.hooks.playLocal((Math.random() * 2 ** 31) | 0, players, { ...this.rules }, spectator);
   }
 
   /** A fresh, empty lobby box. */

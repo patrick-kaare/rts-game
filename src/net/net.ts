@@ -16,6 +16,8 @@ export class NetTransport implements CommandTransport {
   code = '';
   slot = -1;
   token = '';
+  /** Watching rather than playing: joined with Watch, or the host spectating. */
+  spectator = false;
   /** Highest tick whose bundle has arrived (every tick up to it is available). */
   latest = -1;
   /** Chat lines so far, oldest first; kept here so they carry from the lobby into the game. */
@@ -28,7 +30,7 @@ export class NetTransport implements CommandTransport {
   private started = false;
 
   onJoined?: (code: string, slot: number, token: string) => void;
-  onLobby?: (slots: SlotInfo[], rules: GameRules) => void;
+  onLobby?: (slots: SlotInfo[], rules: GameRules, spectators: string[]) => void;
   /** First start of this match in this page. Rejoins after that only refill the buffer. */
   onStart?: (info: StartInfo) => void;
   onPresence?: (connected: boolean[]) => void;
@@ -43,12 +45,16 @@ export class NetTransport implements CommandTransport {
 
   constructor(private url: string) {}
 
-  create(name: string, rules: GameRules, slots: SlotSetting[], teams: number[], difficulties: Difficulty[]) {
-    this.open({ t: 'create', name, rules, slots, teams, difficulties });
+  create(name: string, rules: GameRules, slots: SlotSetting[], teams: number[], difficulties: Difficulty[], spectate = false) {
+    this.open({ t: 'create', name, rules, slots, teams, difficulties, spectate });
   }
 
   join(code: string, name: string) {
     this.open({ t: 'join', code, name });
+  }
+
+  watch(code: string, name: string) {
+    this.open({ t: 'watch', code, name });
   }
 
   rejoin(code: string, token: string) {
@@ -71,6 +77,11 @@ export class NetTransport implements CommandTransport {
 
   setRules(rules: GameRules) {
     this.post({ t: 'rules', rules });
+  }
+
+  /** Host only: watch the match instead of playing. */
+  setSpectate(on: boolean) {
+    this.post({ t: 'spectate', on });
   }
 
   start() {
@@ -151,11 +162,14 @@ export class NetTransport implements CommandTransport {
         this.code = msg.code;
         this.slot = msg.slot;
         this.token = msg.token;
+        this.spectator = msg.spectator;
         this.onConnection?.(false);
         this.onJoined?.(msg.code, msg.slot, msg.token);
         break;
       case 'lobby':
-        this.onLobby?.(msg.slots, msg.rules);
+        // The host's spectate toggle can change in the lobby.
+        if (this.slot >= 0) this.spectator = !!msg.slots[this.slot]?.spectator;
+        this.onLobby?.(msg.slots, msg.rules, msg.spectators);
         break;
       case 'start':
         // Fill in everything we haven't run yet. Ticks without commands are implicit.
