@@ -1,10 +1,11 @@
 import { BUILDINGS } from './data/buildings';
 import { isPassable } from './data/terrain';
 import { UNITS } from './data/units';
-import { generateMap } from './map';
-import { DEFAULT_RULES, type Difficulty, type GameRules, type StartUnitsRule } from './rules';
+import { generateMap, type GeneratedMap } from './map';
+import { DEFAULT_RULES, hasGems, type Difficulty, type GameRules, type StartUnitsRule } from './rules';
 import {
   TILE,
+  Terrain,
   type BuildingType,
   type Entity,
   type Player,
@@ -40,7 +41,7 @@ export function createWorld(
   teams: number[] = [],
   difficulties: Difficulty[] = [],
 ): World {
-  const map = generateMap(seed, playerCount, rules.mapSize, rules.terrain);
+  const map = generateMap(seed, playerCount, rules.mapSize, rules.terrain, hasGems(rules));
   const n = map.w * map.h;
   const blocked = new Uint8Array(n);
   for (let i = 0; i < n; i++) blocked[i] = isPassable(map.terrain[i]) ? 0 : 1;
@@ -54,6 +55,8 @@ export function createWorld(
     h: map.h,
     terrain: map.terrain,
     ore: map.ore,
+    gems: map.gems,
+    oreBed: oreBed(map),
     blocked,
     buildingAt: new Int32Array(n),
     entities: new Map(),
@@ -95,6 +98,28 @@ export function createWorld(
   return world;
 }
 
+/** Starting ore tiles (not gems) plus a 1-tile ring of grass around them, so regrowing fields creep a little. */
+function oreBed(map: GeneratedMap): Uint8Array {
+  const { w, h } = map;
+  const bed = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (!map.ore[i] || map.gems[i]) continue;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+          const j = ny * w + nx;
+          if (!map.gems[j] && (map.ore[j] || map.terrain[j] === Terrain.Grass)) bed[j] = 1;
+        }
+      }
+    }
+  }
+  return bed;
+}
+
 function emptyQueue() {
   return { items: [], progress: 0, spent: 0, ready: false };
 }
@@ -125,6 +150,7 @@ function baseEntity(world: World, owner: number): Entity {
     ax: 0,
     ay: TILE,
     cargo: 0,
+    gemCargo: 0,
     tx: 0,
     ty: 0,
     w: 0,
@@ -164,6 +190,7 @@ export function addBuilding(world: World, owner: number, type: BuildingType, tx:
       world.blocked[i] = 1;
       world.buildingAt[i] = e.id;
       world.ore[i] = 0;
+      world.gems[i] = 0;
     }
   }
   world.oreVersion++;

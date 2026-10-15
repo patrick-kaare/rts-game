@@ -427,7 +427,8 @@ export class Renderer {
     const dirty = new Set<number>();
     for (let i = 0; i < world.ore.length; i++) {
       const amount = world.ore[i];
-      const dots = amount ? Math.min(5, 1 + Math.floor(amount / 100)) : 0;
+      // Low bits: dot count. Bit 3: gem tile.
+      const dots = amount ? Math.min(5, 1 + Math.floor(amount / 100)) | (world.gems[i] ? 8 : 0) : 0;
       if (dots === this.oreDots[i]) continue;
       this.oreDots[i] = dots;
       dirty.add(Math.floor(Math.floor(i / world.w) / ORE_CHUNK) * cw + Math.floor((i % world.w) / ORE_CHUNK));
@@ -441,7 +442,8 @@ export class Renderer {
     for (let y = cy * ORE_CHUNK; y < Math.min(world.h, (cy + 1) * ORE_CHUNK); y++) {
       for (let x = cx * ORE_CHUNK; x < Math.min(world.w, (cx + 1) * ORE_CHUNK); x++) {
         const i = y * world.w + x;
-        const dots = this.oreDots[i];
+        const dots = this.oreDots[i] & 7;
+        const gem = this.oreDots[i] & 8;
         const px = x * TILE_PX;
         const py = y * TILE_PX;
         for (let k = 0; k < dots; k++) {
@@ -449,7 +451,13 @@ export class Renderer {
           const hx = ((i * 73 + k * 151) % 97) / 97;
           const hy = ((i * 131 + k * 89) % 89) / 89;
           const r = 2.5 + (((i + k * 7) % 5) / 5) * 2.5;
-          g.circle(px + 6 + hx * 20, py + 6 + hy * 20, r).fill(COLORS.ore).stroke({ width: 1, color: COLORS.oreDark });
+          const ox = px + 6 + hx * 20;
+          const oy = py + 6 + hy * 20;
+          if (gem) {
+            g.poly([ox, oy - r * 1.3, ox + r, oy, ox, oy + r * 1.3, ox - r, oy]).fill(COLORS.gem).stroke({ width: 1, color: COLORS.gemDark });
+          } else {
+            g.circle(ox, oy, r).fill(COLORS.ore).stroke({ width: 1, color: COLORS.oreDark });
+          }
         }
       }
     }

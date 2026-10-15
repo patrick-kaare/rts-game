@@ -1,4 +1,4 @@
-import { DIFFICULTY_OPTIONS, FOG_OPTIONS, MAP_SIZE_OPTIONS, POWER_OPTIONS, START_UNITS_OPTIONS, TERRAIN_OPTIONS } from './rules';
+import { DIFFICULTY_OPTIONS, FOG_OPTIONS, MAP_SIZE_OPTIONS, ORE_OPTIONS, POWER_OPTIONS, START_UNITS_OPTIONS, TERRAIN_OPTIONS } from './rules';
 import type { World } from './types';
 
 /** FNV-1a over the authoritative sim state. Used for determinism tests and future desync checks. */
@@ -18,6 +18,7 @@ export function stateHash(world: World): number {
   mix(START_UNITS_OPTIONS.indexOf(world.rules.startUnits));
   mix(TERRAIN_OPTIONS.indexOf(world.rules.terrain));
   mix(POWER_OPTIONS.indexOf(world.rules.power));
+  mix(ORE_OPTIONS.indexOf(world.rules.ore));
   for (const p of world.players) {
     mix(p.credits);
     mix(p.team);
@@ -34,6 +35,7 @@ export function stateHash(world: World): number {
     mix(e.y);
     mix(e.hp);
     mix(e.cargo);
+    mix(e.gemCargo);
     mix(e.cooldown);
     mix(e.targetId);
     mix(e.pathIdx);
@@ -41,6 +43,6 @@ export function stateHash(world: World): number {
     mix(e.rallyX);
     mix(e.rallyY);
   }
-  for (let i = 0; i < world.ore.length; i++) if (world.ore[i]) mix(i * 65536 + world.ore[i]);
+  for (let i = 0; i < world.ore.length; i++) if (world.ore[i]) mix(i * 65536 + world.ore[i] + (world.gems[i] ? 1 << 30 : 0));
   return h >>> 0;
 }

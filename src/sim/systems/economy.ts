@@ -1,6 +1,18 @@
-import { HARVEST_RATE, HARVESTER_CAPACITY, UNLOAD_RATE } from '../data/units';
+import {
+  GEM_VALUE,
+  HARVEST_RATE,
+  HARVESTER_CAPACITY,
+  ORE_GROW,
+  ORE_GROW_CAP,
+  ORE_GROW_INTERVAL,
+  ORE_SPREAD_CHANCE,
+  ORE_SPREAD_MIN,
+  ORE_SPREAD_SEED,
+  UNLOAD_RATE,
+} from '../data/units';
 import { bfsFind } from '../pathfinding';
-import { DIFFICULTY } from '../rules';
+import { randInt } from '../rng';
+import { DIFFICULTY, oreRegrows } from '../rules';
 import { TILE, type Entity, type Order, type World } from '../types';
 import { distSqToEntity, tileOf } from '../world';
 import { clearPath, followPath, isMoving, setPath } from './movement';
@@ -51,6 +63,7 @@ export function updateHarvester(world: World, e: Entity): void {
       if (take > 0) {
         world.ore[i] -= take;
         e.cargo += take;
+        if (world.gems[i]) e.gemCargo += take;
         world.oreVersion++;
       }
       if (e.cargo >= HARVESTER_CAPACITY) o.state = 'toRefinery';
@@ -94,8 +107,10 @@ export function updateHarvester(world: World, e: Entity): void {
         if (eff < 100 && Math.floor((world.tick * eff) / 100) === Math.floor(((world.tick - 1) * eff) / 100)) return;
       }
       const amount = Math.min(UNLOAD_RATE, e.cargo);
+      const gems = Math.min(amount, e.gemCargo);
       e.cargo -= amount;
-      p.credits += Math.floor((amount * DIFFICULTY[p.difficulty].income) / 100);
+      e.gemCargo -= gems;
+      p.credits += Math.floor(((amount + gems * (GEM_VALUE - 1)) * DIFFICULTY[p.difficulty].income) / 100);
       if (e.cargo === 0) o.state = 'seek';
       return;
     }
@@ -134,4 +149,35 @@ function findOre(world: World, e: Entity, o: HarvestOrder): number {
   if (found >= 0) return found;
   // Everything nearby is claimed; share a tile rather than idle.
   return bfsFind(world, origin, (i) => world.ore[i] > 0);
+}
+
+/**
+ * Regrowing ore: every ORE_GROW_INTERVAL ticks, ore tiles in the bed grow, and
+ * empty bed tiles next to a rich tile may be seeded. A field mined bare stays bare.
+ */
+export function updateOre(world: World): void {
+  if (!oreRegrows(world.rules) || world.tick % ORE_GROW_INTERVAL !== 0) return;
+  const { w, h, ore, oreBed, buildingAt } = world;
+  // Decide seeding from the ore as it was before this step, so the scan order doesn't matter.
+  const before = ore.slice();
+  const rich = (j: number) => before[j] >= ORE_SPREAD_MIN;
+  let changed = false;
+  for (let i = 0; i < ore.length; i++) {
+    if (!oreBed[i] || buildingAt[i] || world.gems[i]) continue;
+    if (before[i] > 0) {
+      if (before[i] < ORE_GROW_CAP) {
+        ore[i] = Math.min(ORE_GROW_CAP, before[i] + ORE_GROW);
+        changed = true;
+      }
+      continue;
+    }
+    const x = i % w;
+    const y = Math.floor(i / w);
+    const nearRich = (x > 0 && rich(i - 1)) || (x < w - 1 && rich(i + 1)) || (y > 0 && rich(i - w)) || (y < h - 1 && rich(i + w));
+    if (nearRich && randInt(world.rng, 1, ORE_SPREAD_CHANCE) === 1) {
+      ore[i] = ORE_SPREAD_SEED;
+      changed = true;
+    }
+  }
+  if (changed) world.oreVersion++;
 }

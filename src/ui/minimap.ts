@@ -64,6 +64,7 @@ export class Minimap {
   }
 
   private oreVersion = -1;
+  private baseTick = 0;
 
   private redrawBase(world: World) {
     const ctx = this.base.getContext('2d')!;
@@ -71,18 +72,21 @@ export class Minimap {
     for (let i = 0; i < world.terrain.length; i++) {
       const t = world.terrain[i];
       let c = MINIMAP_COLORS[t];
-      if (world.ore[i]) c = [224, 168, 46];
+      if (world.ore[i]) c = world.gems[i] ? [95, 216, 232] : [224, 168, 46];
       img.data.set([c[0], c[1], c[2], 255], i * 4);
     }
     ctx.putImageData(img, 0, 0);
     this.oreVersion = world.oreVersion;
+    this.baseTick = world.tick;
   }
 
   draw() {
     const world = this.game.world;
     const me = this.game.state.localPlayer;
     const ctx = this.ctx;
-    if (world.oreVersion - this.oreVersion > 50) this.redrawBase(world);
+    // Mining changes ore every tick, so batch those; slow regrowth still shows up within a couple of seconds.
+    const oreChanged = world.oreVersion - this.oreVersion;
+    if (oreChanged > 50 || (oreChanged > 0 && world.tick - this.baseTick >= 40)) this.redrawBase(world);
     const sx = SIZE / world.w;
     const sy = SIZE / world.h;
     // Full power rules: radar goes dark at low power, showing only our own things.

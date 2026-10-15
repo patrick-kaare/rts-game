@@ -37,6 +37,8 @@ export const COLORS = {
   concreteEdge: 0x55585c,
   ore: 0xe0a82e,
   oreDark: 0x9a6b12,
+  gem: 0x5fd8e8,
+  gemDark: 0x6a3fb0,
   grid: 0x000000,
   bulletShot: 0xfff3a0,
   shellShot: 0xffa640,

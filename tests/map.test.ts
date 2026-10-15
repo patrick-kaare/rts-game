@@ -131,3 +131,26 @@ describe('rich terrain', () => {
     }
   });
 });
+
+describe('gem fields', () => {
+  it.each(TERRAIN_OPTIONS)('only change ore amounts, sit on ore and are mirrored (%s)', (style) => {
+    for (const players of [2, 4, 3]) {
+      for (let seed = 1; seed <= 10; seed++) {
+        const plain = generateMap(seed * 13, players, 'auto', style);
+        const gems = generateMap(seed * 13, players, 'auto', style, true);
+        expect(plain.gems.every((v) => v === 0)).toBe(true);
+        expect(gems.terrain).toEqual(plain.terrain);
+        expect(gems.starts).toEqual(plain.starts);
+        let count = 0;
+        for (let i = 0; i < gems.ore.length; i++) {
+          expect(gems.ore[i] > 0).toBe(plain.ore[i] > 0);
+          if (!gems.gems[i]) continue;
+          count++;
+          expect(gems.ore[i]).toBeGreaterThan(0);
+          if (players % 2 === 0) expect(gems.gems[gems.ore.length - 1 - i]).toBe(1);
+        }
+        expect(count).toBeGreaterThan(0);
+      }
+    }
+  });
+});

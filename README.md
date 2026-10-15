@@ -13,7 +13,7 @@ npm run build
 ## Starting a game
 **New game** opens a lobby with 10 slots and the match rules. Set each slot to AI, Closed or Open, then press **Start**.
 
-- **Rules**: starting credits, fog of war (fog, map revealed, or no fog), map size (Auto picks one from the player count; sizes too small for the players are bumped up), terrain (see below), starting units and how harsh low power is (see Low power below). The host's last choice is remembered.
+- **Rules**: starting credits, fog of war (fog, map revealed, or no fog), map size (Auto picks one from the player count; sizes too small for the players are bumped up), terrain (see below), ore (see Ore below), starting units and how harsh low power is (see Low power below). The host's last choice is remembered.
 - **Teams**: each player or AI can be put on Team 1–5, or left with no team to play alone. The host can set every team; anyone else can change only their own. Teams are fixed once the match starts. Allies share vision, can't attack each other, and can build next to each other's buildings. A player is out once they have no buildings left, and the match ends when everyone still in it is on the same team. Start positions follow the slot order, so allies don't necessarily start next to each other.
 - As long as every slot is AI or Closed, the game runs entirely in the browser and no server is needed.
 - Setting a slot to **Open** moves the lobby to the game server (run both `npm run dev` and `npm run server`). You get a 4-letter code and an invite link; others use **Join** with the code or open the link. Open slots nobody joined are left out when the game starts.
@@ -36,6 +36,13 @@ Buildings can go on grass and roads, but not in forest or on bridges. **Classic*
 - **Jeep** (factory): fast scout with long sight and a light machine gun. Good for exploring through the fog and hunting infantry, but fragile and nearly harmless against vehicles and buildings.
 - **Tank** (factory): main battle unit, strong against vehicles and buildings.
 - **Harvester** (factory, and one free with each refinery): gathers ore and brings it to a refinery.
+
+### Ore
+The lobby's **Ore** setting picks how fields behave over a match:
+- **Regrows, gem fields** (default): both of the below.
+- **Regrows**: ore tiles slowly grow back (up to 400 per tile), and empty tiles next to a rich tile are reseeded now and then, so fields creep a tile beyond where they started. A field mined completely bare stays bare, so it pays to leave some ore behind.
+- **Gem fields**: the cores of the contested fields and the centre field are gems (blue diamonds). A gem is worth twice as much as ore, so a full load of gems brings in $1,000 instead of $500. Gem tiles hold half as much, so a field is worth the same in total but pays out faster. Gems never grow back.
+- **Finite**: ore only runs out, as before.
 
 ## Defenses
 - **Pillbox** (barracks): machine-gun bunker that shreds infantry, but does little to vehicles.

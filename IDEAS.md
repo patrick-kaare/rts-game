@@ -12,7 +12,6 @@ Ordered roughly by how much each would improve play compared to the work involve
 ## Economy and base building
 - **Sell and repair** buildings.
 - **Silos or storage limits**, so harvesting more ore isn't automatically always better.
-- **Ore that grows back** or gem fields worth more, so the map changes over a match.
 
 ## Units and buildings
 - **Rocket infantry**: a cheap counter to tanks (riflemen only do 25% damage to vehicles).

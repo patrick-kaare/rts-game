@@ -58,6 +58,8 @@ export interface Entity {
   ax: number;
   ay: number;
   cargo: number;
+  /** How much of cargo is gems. */
+  gemCargo: number;
 
   // --- buildings (tile footprint) ---
   tx: number;
@@ -142,6 +144,10 @@ export interface World {
   terrain: Uint8Array;
   /** Ore amount (credits) per tile. */
   ore: Uint16Array;
+  /** 1 on gem tiles. Gems are mined like ore but worth GEM_VALUE times as much, and never grow back. */
+  gems: Uint8Array;
+  /** 1 on tiles where ore can grow back: the starting ore fields plus a ring of grass around them. */
+  oreBed: Uint8Array;
   /** 1 if impassable (terrain or building). */
   blocked: Uint8Array;
   /** Building entity id occupying a tile, 0 if none. */

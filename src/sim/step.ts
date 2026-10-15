@@ -1,5 +1,6 @@
 import { separateUnits } from './systems/movement';
 import { updateDefense } from './systems/combat';
+import { updateOre } from './systems/economy';
 import { updateFog } from './systems/fog';
 import { updatePower, updateProduction } from './systems/production';
 import { updateUnit } from './systems/units';
@@ -25,6 +26,7 @@ export function stepWorld(world: World): void {
     if (e.kind === 'unit') updateUnit(world, e);
     else if (buildingDef(e).weapon) updateDefense(world, e);
   }
+  updateOre(world);
   separateUnits(world);
   updateFog(world);
   updateVictory(world);

@@ -194,7 +194,7 @@ describe('game server', () => {
   });
 
   it('takes the setup from create and lets only the host change the rules', async () => {
-    const rules: GameRules = { credits: 10000, fog: 'off', mapSize: 'large', startUnits: 'army', terrain: 'rich', power: 'full' };
+    const rules: GameRules = { credits: 10000, fog: 'off', mapSize: 'large', startUnits: 'army', terrain: 'rich', power: 'full', ore: 'both' };
     const setup: SlotSetting[] = ['open', 'ai', ...Array<SlotSetting>(7).fill('closed')];
     const a = client();
     a.create('Alice', rules, setup);

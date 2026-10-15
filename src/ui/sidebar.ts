@@ -194,7 +194,7 @@ export class Sidebar {
     if (sel.length === 1) {
       const e = sel[0];
       const name = e.kind === 'building' ? buildingDef(e).name : unitDef(e).name;
-      let extra = e.type === 'harvester' ? ` · cargo ${e.cargo}` : '';
+      let extra = e.type === 'harvester' ? ` · cargo ${e.cargo}${e.gemCargo ? ` (gems ${e.gemCargo})` : ''}` : '';
       if (e.kind === 'building' && buildingDef(e).category === 'defense' && isLowPower(world.players[e.owner])) extra = ' · offline (low power)';
       this.info.textContent = `${name} — ${e.hp}/${e.maxHp} HP${extra}`;
       return;

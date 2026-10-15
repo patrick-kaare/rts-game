@@ -4,7 +4,8 @@ import { applyCommand } from '../src/sim/commands';
 import { stateHash } from '../src/sim/hash';
 import { itemBuildTicks, itemCost } from '../src/sim/data/items';
 import { findPath } from '../src/sim/pathfinding';
-import { DEFAULT_RULES, type Difficulty, type GameRules } from '../src/sim/rules';
+import { DEFAULT_RULES, ORE_OPTIONS, type Difficulty, type GameRules } from '../src/sim/rules';
+import { GEM_VALUE, ORE_GROW_CAP, ORE_GROW_INTERVAL } from '../src/sim/data/units';
 import { acquireTarget } from '../src/sim/systems/combat';
 import { canPlace, wallLine } from '../src/sim/systems/construction';
 import { powerEfficiency, updatePower } from '../src/sim/systems/production';
@@ -19,6 +20,8 @@ function flatWorld(): World {
   w.terrain.fill(Terrain.Grass);
   w.blocked.fill(0);
   w.ore.fill(0);
+  w.gems.fill(0);
+  w.oreBed.fill(0);
   w.buildingAt.fill(0);
   w.entities.clear();
   // Keep player 1 alive so the game does not end immediately.
@@ -78,6 +81,111 @@ describe('economy', () => {
     const before = w.players[0].credits;
     for (let i = 0; i < 1500; i++) stepWorld(w);
     expect(w.players[0].credits).toBeGreaterThan(before + 400);
+  });
+});
+
+describe('ore', () => {
+  /** A 5×5 bed at (20, 20) with ore everywhere except a mined-out tile in the middle. */
+  function bedWorld(ore: GameRules['ore']): World {
+    const w = flatWorld();
+    w.rules = { ...w.rules, ore };
+    addBuilding(w, 0, 'cy', 5, 5);
+    for (let y = 20; y < 25; y++) {
+      for (let x = 20; x < 25; x++) {
+        w.oreBed[y * w.w + x] = 1;
+        w.ore[y * w.w + x] = 200;
+      }
+    }
+    w.ore[22 * w.w + 22] = 0;
+    return w;
+  }
+  const run = (w: World, ticks: number) => {
+    for (let i = 0; i < ticks; i++) stepWorld(w);
+  };
+
+  it('regrows and reseeds mined-out tiles next to rich ore', () => {
+    const w = bedWorld('regrow');
+    run(w, ORE_GROW_INTERVAL * 60);
+    expect(w.ore[22 * w.w + 22]).toBeGreaterThan(0);
+    expect(w.ore[20 * w.w + 20]).toBeGreaterThan(200);
+    // Never outside the bed.
+    expect(w.ore[19 * w.w + 20]).toBe(0);
+  });
+
+  it('grows up to the cap, but not under buildings or on gems', () => {
+    const w = bedWorld('both');
+    w.gems[20 * w.w + 20] = 1;
+    addBuilding(w, 0, 'power', 23, 23);
+    run(w, ORE_GROW_INTERVAL * 200);
+    expect(w.ore[21 * w.w + 21]).toBe(ORE_GROW_CAP);
+    expect(w.ore[20 * w.w + 20]).toBe(200);
+    expect(w.ore[23 * w.w + 23]).toBe(0);
+  });
+
+  it('stays put with finite or gem-only ore', () => {
+    for (const ore of ['finite', 'gems'] as const) {
+      const w = bedWorld(ore);
+      run(w, ORE_GROW_INTERVAL * 30);
+      expect(w.ore[22 * w.w + 22]).toBe(0);
+      expect(w.ore[20 * w.w + 20]).toBe(200);
+    }
+  });
+
+  it('a field mined bare stays bare', () => {
+    const w = bedWorld('regrow');
+    w.ore.fill(0);
+    run(w, ORE_GROW_INTERVAL * 30);
+    expect(w.ore.every((v) => v === 0)).toBe(true);
+  });
+
+  it('gems are worth double', () => {
+    const w = flatWorld();
+    w.players[0].credits = 0;
+    addBuilding(w, 0, 'power', 9, 5);
+    const ref = addBuilding(w, 0, 'refinery', 5, 5);
+    const harv = addUnit(w, 0, 'harvester', 6 * TILE, 8 * TILE);
+    const i = 8 * w.w + 6;
+    w.ore[i] = 60;
+    w.gems[i] = 1;
+    harv.order = { t: 'harvest', state: 'mining', tx: 6, ty: 8, refinery: 0 };
+    run(w, 6);
+    expect(harv.gemCargo).toBe(30);
+    harv.cargo += 70; // plus some ordinary ore
+    harv.order = { t: 'harvest', state: 'unloading', tx: -1, ty: -1, refinery: ref.id };
+    for (let k = 0; k < 10 && harv.cargo > 0; k++) stepWorld(w);
+    expect(harv.cargo).toBe(0);
+    expect(harv.gemCargo).toBe(0);
+    expect(w.players[0].credits).toBe(70 + 30 * GEM_VALUE);
+  });
+
+  it('gem fields only appear when the rules have them, without changing the layout', () => {
+    for (const players of [2, 3, 5]) {
+      const gems = createWorld(7, players, { ...DEFAULT_RULES, ore: 'both' });
+      const plain = createWorld(7, players, { ...DEFAULT_RULES, ore: 'regrow' });
+      expect(plain.gems.every((v) => v === 0)).toBe(true);
+      const mid = (gems.h / 2) * gems.w + gems.w / 2;
+      expect(gems.gems[mid]).toBe(1);
+      expect(gems.terrain).toEqual(plain.terrain);
+      for (let i = 0; i < gems.ore.length; i++) {
+        expect(gems.ore[i] > 0).toBe(plain.ore[i] > 0);
+        if (gems.gems[i]) expect(gems.oreBed[i]).toBe(0);
+      }
+    }
+  });
+
+  it('is part of the state hash', () => {
+    expect(stateHash(createWorld(5, 2, { ...DEFAULT_RULES, ore: 'finite' }))).not.toBe(stateHash(createWorld(5, 2, { ...DEFAULT_RULES, ore: 'regrow' })));
+  });
+
+  it.each(ORE_OPTIONS)('an AI match is deterministic with %s ore', (ore) => {
+    const rules: GameRules = { ...DEFAULT_RULES, ore, mapSize: 'small' };
+    const a = aiMatch(11, 2, rules);
+    const b = aiMatch(11, 2, rules);
+    for (let i = 0; i < 1500; i++) {
+      a.step();
+      b.step();
+    }
+    expect(stateHash(a.world)).toBe(stateHash(b.world));
   });
 });
 
@@ -382,19 +490,19 @@ describe('rules', () => {
   const units = (w: World, owner: number) => [...w.entities.values()].filter((e) => e.owner === owner && e.kind === 'unit').map((e) => e.type);
 
   it('sets starting credits and units', () => {
-    const w = createWorld(3, 3, { credits: 5000, fog: 'full', mapSize: 'auto', startUnits: 'army', terrain: 'rich', power: 'full' });
+    const w = createWorld(3, 3, { credits: 5000, fog: 'full', mapSize: 'auto', startUnits: 'army', terrain: 'rich', power: 'full', ore: 'both' });
     for (const p of w.players) {
       expect(p.credits).toBe(5000);
       expect(units(w, p.id).sort()).toEqual(['rifleman', 'rifleman', 'rifleman', 'rifleman', 'tank', 'tank']);
     }
     // Every starting unit stands on open ground.
     for (const e of w.entities.values()) if (e.kind === 'unit') expect(w.blocked[tileOf(w, e.x, e.y)]).toBe(0);
-    expect(units(createWorld(3, 2, { credits: 1000, fog: 'full', mapSize: 'auto', startUnits: 'none', terrain: 'rich', power: 'full' }), 0)).toEqual([]);
+    expect(units(createWorld(3, 2, { credits: 1000, fog: 'full', mapSize: 'auto', startUnits: 'none', terrain: 'rich', power: 'full', ore: 'both' }), 0)).toEqual([]);
     expect(units(createWorld(3), 0)).toEqual(['rifleman', 'rifleman']);
   });
 
   it('picks the map size, but never too small for the players', () => {
-    const rules = (mapSize: GameRules['mapSize']): GameRules => ({ credits: 3000, fog: 'full', mapSize, startUnits: 'squad', terrain: 'rich', power: 'full' });
+    const rules = (mapSize: GameRules['mapSize']): GameRules => ({ credits: 3000, fog: 'full', mapSize, startUnits: 'squad', terrain: 'rich', power: 'full', ore: 'both' });
     expect(createWorld(1, 2, rules('huge')).w).toBe(160);
     expect(createWorld(1, 4, rules('small')).w).toBe(64);
     expect(createWorld(1, 8, rules('small')).w).toBe(96);
@@ -402,19 +510,19 @@ describe('rules', () => {
   });
 
   it('fog: explored map and no fog', () => {
-    const explored = createWorld(1, 2, { credits: 3000, fog: 'explored', mapSize: 'auto', startUnits: 'squad', terrain: 'rich', power: 'full' });
+    const explored = createWorld(1, 2, { credits: 3000, fog: 'explored', mapSize: 'auto', startUnits: 'squad', terrain: 'rich', power: 'full', ore: 'both' });
     stepWorld(explored);
     expect(explored.explored[0].every((v) => v === 1)).toBe(true);
     expect(explored.visible[0].every((v) => v === 1)).toBe(false);
-    const off = createWorld(1, 2, { credits: 3000, fog: 'off', mapSize: 'auto', startUnits: 'squad', terrain: 'rich', power: 'full' });
+    const off = createWorld(1, 2, { credits: 3000, fog: 'off', mapSize: 'auto', startUnits: 'squad', terrain: 'rich', power: 'full', ore: 'both' });
     for (let i = 0; i < 5; i++) stepWorld(off);
     expect(off.visible[1].every((v) => v === 1)).toBe(true);
     expect(off.explored[1].every((v) => v === 1)).toBe(true);
   });
 
   it('is part of the state hash', () => {
-    const a = createWorld(5, 2, { credits: 3000, fog: 'full', mapSize: 'auto', startUnits: 'squad', terrain: 'rich', power: 'full' });
-    const b = createWorld(5, 2, { credits: 3000, fog: 'off', mapSize: 'auto', startUnits: 'squad', terrain: 'rich', power: 'full' });
+    const a = createWorld(5, 2, { credits: 3000, fog: 'full', mapSize: 'auto', startUnits: 'squad', terrain: 'rich', power: 'full', ore: 'both' });
+    const b = createWorld(5, 2, { credits: 3000, fog: 'off', mapSize: 'auto', startUnits: 'squad', terrain: 'rich', power: 'full', ore: 'both' });
     expect(stateHash(a)).not.toBe(stateHash(b));
   });
 });
@@ -425,6 +533,8 @@ function teamWorld(): World {
   w.terrain.fill(Terrain.Grass);
   w.blocked.fill(0);
   w.ore.fill(0);
+  w.gems.fill(0);
+  w.oreBed.fill(0);
   w.buildingAt.fill(0);
   w.entities.clear();
   addBuilding(w, 1, 'cy', 60, 0);
@@ -485,7 +595,7 @@ describe('teams', () => {
     expect(stateHash(createWorld(5, 3, DEFAULT_RULES, [1, 1, 0]))).not.toBe(stateHash(createWorld(5, 3)));
   });
 
-  const teamRules: GameRules = { credits: 10000, fog: 'full', mapSize: 'small', startUnits: 'army', terrain: 'rich', power: 'full' };
+  const teamRules: GameRules = { credits: 10000, fog: 'full', mapSize: 'small', startUnits: 'army', terrain: 'rich', power: 'full', ore: 'both' };
 
   it('a 2v2 AI match is deterministic', () => {
     const a = aiMatch(4, 4, teamRules, [1, 1, 2, 2]);
@@ -574,7 +684,7 @@ describe('difficulty', () => {
 
 describe('AI match', () => {
   it('is deterministic with non-default rules', () => {
-    const rules: GameRules = { credits: 10000, fog: 'off', mapSize: 'medium', startUnits: 'army', terrain: 'rich', power: 'basic' };
+    const rules: GameRules = { credits: 10000, fog: 'off', mapSize: 'medium', startUnits: 'army', terrain: 'rich', power: 'basic', ore: 'regrow' };
     const a = aiMatch(8, 3, rules);
     const b = aiMatch(8, 3, rules);
     for (let i = 0; i < 2000; i++) {

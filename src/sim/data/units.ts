@@ -85,3 +85,13 @@ export const DAMAGE_TABLE: Record<Weapon['kind'], Record<Armor, number>> = {
 export const HARVESTER_CAPACITY = 500;
 export const HARVEST_RATE = 5;
 export const UNLOAD_RATE = 25;
+/** Credits per gem, as a multiple of ore. */
+export const GEM_VALUE = 2;
+/** Ore regrowth: every interval, ore tiles grow and empty ones next to rich tiles may be seeded. */
+export const ORE_GROW_INTERVAL = 100;
+export const ORE_GROW = 1;
+export const ORE_GROW_CAP = 400;
+export const ORE_SPREAD_MIN = 100;
+export const ORE_SPREAD_SEED = 25;
+/** An eligible empty tile is seeded with a chance of 1 in this. */
+export const ORE_SPREAD_CHANCE = 8;

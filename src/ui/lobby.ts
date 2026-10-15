@@ -8,6 +8,7 @@ import {
   DIFFICULTY_OPTIONS,
   FOG_OPTIONS,
   MAP_SIZE_OPTIONS,
+  ORE_OPTIONS,
   POWER_OPTIONS,
   START_UNITS_OPTIONS,
   TERRAIN_OPTIONS,
@@ -75,6 +76,7 @@ const FOG_TEXT = { full: 'Fog of war', explored: 'Map revealed', off: 'No fog' }
 const START_UNITS_TEXT = { none: 'Construction yard only', squad: '2 riflemen', army: '4 riflemen, 2 tanks' };
 const TERRAIN_TEXT = { rich: 'Rivers, roads and forests', classic: 'Classic' };
 const POWER_TEXT = { full: 'Full effects', basic: 'Slower builds only' };
+const ORE_TEXT = { both: 'Regrows, gem fields', regrow: 'Regrows', gems: 'Gem fields', finite: 'Finite' };
 const MAP_SIZE_TEXT = { auto: 'Auto', small: 'Small', medium: 'Medium', large: 'Large', huge: 'Huge' };
 const SLOT_TEXT = { open: 'Open', ai: 'AI', closed: 'Closed' };
 const DIFFICULTY_TEXT = { easy: 'Easy', normal: 'Normal', hard: 'Hard' };
@@ -386,6 +388,7 @@ export class Lobby {
         (v) => v !== 'auto' && mapSideFor(v as MapSizeRule, players) !== MAP_SIDES[v as Exclude<MapSizeRule, 'auto'>],
       ],
       ['Terrain', TERRAIN_OPTIONS, rules.terrain, (v) => TERRAIN_TEXT[v as GameRules['terrain']], (v) => (rules.terrain = v as GameRules['terrain']), () => false],
+      ['Ore', ORE_OPTIONS, rules.ore, (v) => ORE_TEXT[v as GameRules['ore']], (v) => (rules.ore = v as GameRules['ore']), () => false],
       ['Units', START_UNITS_OPTIONS, rules.startUnits, (v) => START_UNITS_TEXT[v as GameRules['startUnits']], (v) => (rules.startUnits = v as GameRules['startUnits']), () => false],
       ['Low power', POWER_OPTIONS, rules.power, (v) => POWER_TEXT[v as GameRules['power']], (v) => (rules.power = v as GameRules['power']), () => false],
     ];

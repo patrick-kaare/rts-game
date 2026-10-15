@@ -35,6 +35,8 @@ export interface GeneratedMap {
   h: number;
   terrain: Uint8Array;
   ore: Uint16Array;
+  /** 1 on gem tiles. Their ore amount is in gems, each worth more than ore. */
+  gems: Uint8Array;
   /** Top-left tiles of each player's construction yard. */
   starts: { x: number; y: number }[];
 }
@@ -47,11 +49,11 @@ export interface GeneratedMap {
  * bases, cliff arcs around them, forests, and roads (with bridges) linking them.
  * Retries with a derived seed until every base is connected.
  */
-export function generateMap(seed: number, players = 2, size: MapSizeRule = 'auto', style: TerrainRule = 'classic'): GeneratedMap {
+export function generateMap(seed: number, players = 2, size: MapSizeRule = 'auto', style: TerrainRule = 'classic', gems = false): GeneratedMap {
   if (players < 1 || players > MAX_PLAYERS) throw new Error(`unsupported player count ${players}`);
   const side = mapSideFor(size, players);
   for (let attempt = 0; ; attempt++) {
-    const map = tryGenerate((seed + attempt * 7919) | 0, players, side, style);
+    const map = tryGenerate((seed + attempt * 7919) | 0, players, side, style, gems);
     if (map) return map;
   }
 }
@@ -76,11 +78,12 @@ function ringPoint(a: number, len: number, t: number): { x: number; y: number } 
   return { x: a, y: a + len - t };
 }
 
-function tryGenerate(seed: number, players: number, w: number, style: TerrainRule): GeneratedMap | null {
+function tryGenerate(seed: number, players: number, w: number, style: TerrainRule, withGems: boolean): GeneratedMap | null {
   const h = w;
   const rng = { s: seed };
   const terrain = new Uint8Array(w * h);
   const ore = new Uint16Array(w * h);
+  const gems = new Uint8Array(w * h);
   const mirror = players % 2 === 0;
   const perimeter = 4 * (w - 1 - 2 * START_MARGIN);
   // The perimeter is even, so starts k and k + n/2 are always exactly opposite.
@@ -230,14 +233,18 @@ function tryGenerate(seed: number, players: number, w: number, style: TerrainRul
     }
   }
 
-  const oreField = (cx: number, cy: number, r: number, lo: number, hi: number) =>
+  // Gem fields get a core of gems: half the amount at double the value, so a field holds the same credits but pays out faster. The rng is drawn the same either way, so the gem setting never changes the map layout.
+  const oreField = (cx: number, cy: number, r: number, lo: number, hi: number, gemCore = false) =>
     blob(
       cx,
       cy,
       r,
       (i) => {
         terrain[i] = Terrain.Grass;
-        ore[i] = randInt(rng, lo, hi);
+        const amount = randInt(rng, lo, hi);
+        const gem = withGems && gemCore && dist((i % w) + 0.5 - cx, Math.floor(i / w) + 0.5 - cy) < r * 0.5;
+        ore[i] = gem ? Math.floor(amount / 2) : amount;
+        gems[i] = gem ? 1 : 0;
       },
       false,
     );
@@ -258,9 +265,9 @@ function tryGenerate(seed: number, players: number, w: number, style: TerrainRul
     const p = between(k);
     const cx = p.x + 0.5 + (mid - p.x - 0.5) * 0.3;
     const cy = p.y + 0.5 + (mid - p.y - 0.5) * 0.3;
-    oreField(cx, cy, 2.4, 250, 450);
+    oreField(cx, cy, 2.4, 250, 450, true);
   }
-  oreField(mid, mid, 3.2 + players * 0.2, 300, 500);
+  oreField(mid, mid, 3.2 + players * 0.2, 300, 500, true);
 
   if (style === 'rich') {
     // Roads, 2 tiles wide: each base to the centre, and neighbouring bases to each other.
@@ -297,6 +304,7 @@ function tryGenerate(seed: number, players: number, w: number, style: TerrainRul
         if (dist(x + 0.5 - s.x, y + 0.5 - s.y) < 7) {
           terrain[y * w + x] = Terrain.Grass;
           ore[y * w + x] = 0;
+          gems[y * w + x] = 0;
         }
       }
     }
@@ -323,10 +331,11 @@ function tryGenerate(seed: number, players: number, w: number, style: TerrainRul
     if (!reach[i] && isPassable(terrain[i])) {
       terrain[i] = Terrain.Rock;
       ore[i] = 0;
+      gems[i] = 0;
     }
   }
 
-  return { w, h, terrain, ore, starts };
+  return { w, h, terrain, ore, gems, starts };
 }
 
 /** Math.hypot is not guaranteed to be identical across engines; sqrt is. */
