@@ -170,6 +170,11 @@ export class Sidebar {
     game.send({ t: 'build', item });
   }
 
+  /** Something of the viewed player's was hit at this tile: ping the minimap. */
+  alert(tx: number, ty: number) {
+    this.minimap.alert(tx, ty);
+  }
+
   update() {
     // DOM updates at ~15 Hz are plenty.
     if (this.frame++ % 4 !== 0) return;

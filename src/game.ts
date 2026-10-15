@@ -12,7 +12,7 @@ import { applyCommand } from './sim/commands';
 import { stateHash } from './sim/hash';
 import type { GameRules } from './sim/rules';
 import { stepWorld } from './sim/step';
-import { TICK_MS, type Command, type World } from './sim/types';
+import { TICK_MS, TILE, type Command, type World } from './sim/types';
 import { areAllies, createWorld } from './sim/world';
 import { ChatBox, chatColor } from './ui/chat';
 import { Sidebar } from './ui/sidebar';
@@ -255,7 +255,14 @@ export class Game {
     if (local) local.currentTick = world.tick;
     if (this.net && world.tick % HASH_INTERVAL === 0) this.net.reportHash(world.tick, stateHash(world));
     // Skip visual effects nobody will see (hidden tab or fast-forwarding).
-    if (!document.hidden && this.behind() < 4) this.renderer.handleEvents(world.events);
+    if (!document.hidden && this.behind() < 4) {
+      this.renderer.handleEvents(world.events);
+      // Under-attack pings for whoever we're viewing (allies never target each other).
+      const view = this.state.view;
+      for (const ev of world.events) {
+        if (ev.t === 'shot' && view >= 0 && ev.owner === view) this.sidebar.alert(Math.floor(ev.x1 / TILE), Math.floor(ev.y1 / TILE));
+      }
+    }
     if (world.winner >= 0 && !this.gameOver) {
       this.gameOver = true;
       const me = this.state.localPlayer;

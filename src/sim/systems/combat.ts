@@ -119,7 +119,7 @@ export function fire(world: World, e: Entity, t: Entity, weapon: Weapon): void {
   const dmg = Math.max(1, Math.floor((weapon.damage * pct) / 100));
   t.hp -= dmg;
   e.cooldown = weapon.cooldown;
-  world.events.push({ t: 'shot', weapon: weapon.kind, x0: e.x, y0: e.y, x1: t.x, y1: t.y });
+  world.events.push({ t: 'shot', weapon: weapon.kind, x0: e.x, y0: e.y, x1: t.x, y1: t.y, owner: t.owner });
   if (t.hp <= 0) killEntity(world, t);
 }
 

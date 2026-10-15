@@ -116,7 +116,8 @@ export interface PlayerCommand {
 
 /** Transient per-tick events for the renderer. Not part of sim state. */
 export type SimEvent =
-  | { t: 'shot'; weapon: 'bullet' | 'shell'; x0: number; y0: number; x1: number; y1: number }
+  /** owner: the target's owner, for under-attack alerts. */
+  | { t: 'shot'; weapon: 'bullet' | 'shell'; x0: number; y0: number; x1: number; y1: number; owner: number }
   | {
       t: 'death';
       x: number;

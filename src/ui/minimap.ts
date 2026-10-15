@@ -5,6 +5,10 @@ import { isLowPower } from '../sim/systems/production';
 import { TILE, Terrain, type World } from '../sim/types';
 
 const SIZE = 192;
+/** Under-attack pings: how long one pulses, and how near (tiles) and recent (ms) another must be to suppress a new one. */
+const PING_LIFE_MS = 1500;
+const PING_RADIUS_TILES = 8;
+const PING_COOLDOWN_MS = 4000;
 
 /** RGB per terrain id. */
 const MINIMAP_COLORS: number[][] = [];
@@ -23,6 +27,8 @@ export class Minimap {
   private fogCtx = this.fog.getContext('2d')!;
   private fogImage: ImageData | null = null;
   private dragging = false;
+  /** Under-attack pings, in tiles. */
+  private pings: { x: number; y: number; born: number }[] = [];
 
   constructor(private game: Game) {
     this.canvas.width = SIZE;
@@ -60,7 +66,16 @@ export class Minimap {
     this.fog.width = world.w;
     this.fog.height = world.h;
     this.fogImage = this.fogCtx.createImageData(world.w, world.h);
+    this.pings = [];
     this.redrawBase(world);
+  }
+
+  /** Something of ours was hit at this tile. One ping per area every few seconds, so a long fight doesn't spam. */
+  alert(tx: number, ty: number) {
+    const now = performance.now();
+    const r2 = PING_RADIUS_TILES * PING_RADIUS_TILES;
+    const near = this.pings.some((p) => now - p.born < PING_COOLDOWN_MS && (p.x - tx) ** 2 + (p.y - ty) ** 2 < r2);
+    if (!near) this.pings.push({ x: tx, y: ty, born: now });
   }
 
   private oreVersion = -1;
@@ -123,6 +138,8 @@ export class Minimap {
       ctx.drawImage(this.fog, 0, 0, SIZE, SIZE);
     }
 
+    this.drawPings(sx, sy);
+
     const cam = this.game.camera;
     ctx.strokeStyle = '#fff';
     ctx.lineWidth = 1;
@@ -132,5 +149,27 @@ export class Minimap {
       (cam.viewW / TILE_PX) * sx,
       (cam.viewH / TILE_PX) * sy,
     );
+  }
+
+  /** Two staggered red rings growing and fading at each recent ping. */
+  private drawPings(sx: number, sy: number) {
+    const now = performance.now();
+    this.pings = this.pings.filter((p) => now - p.born < PING_COOLDOWN_MS);
+    const ctx = this.ctx;
+    ctx.strokeStyle = '#ef4444';
+    ctx.lineWidth = 2;
+    for (const p of this.pings) {
+      const cx = (p.x + 0.5) * sx;
+      const cy = (p.y + 0.5) * sy;
+      for (const delay of [0, PING_LIFE_MS / 3]) {
+        const t = (now - p.born - delay) / (PING_LIFE_MS - delay);
+        if (t < 0 || t >= 1) continue;
+        ctx.globalAlpha = 1 - t;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 3 + t * 11, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
   }
 }
