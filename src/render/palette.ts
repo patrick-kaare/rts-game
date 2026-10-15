@@ -33,6 +33,17 @@ export const COLORS = {
   valid: 0x22c55e,
   invalid: 0xef4444,
   rally: 0x38bdf8,
+  fx: {
+    muzzle: 0xfff7c2,
+    fire: [0xffd166, 0xff8c1a, 0xe2461b],
+    smokeLight: 0xb4b9c0,
+    smokeDark: 0x3a3a3a,
+    dust: 0x8a7a5c,
+    scorch: 0x1a1712,
+    wreck: 0x2a2623,
+    wreckEdge: 0x45403b,
+    splat: 0x3b1a14,
+  },
 };
 
 export function hpColor(frac: number): number {

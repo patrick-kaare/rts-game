@@ -41,7 +41,6 @@ Ordered roughly by how much each would improve play compared to the work involve
 
 ## Polish
 - **Sound**: gunfire, explosions, unit responses, "construction complete" voice line.
-- **Visual feedback**: muzzle flashes, explosions, damage smoke on buildings, death animations.
 - **Under-attack alerts**: a red ping on the minimap and a sound.
 - **End-of-match stats**: units built and lost, credits harvested, a timeline.
 - **Game speed setting** and pause for offline matches.

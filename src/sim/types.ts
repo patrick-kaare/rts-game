@@ -114,7 +114,22 @@ export interface PlayerCommand {
 /** Transient per-tick events for the renderer. Not part of sim state. */
 export type SimEvent =
   | { t: 'shot'; weapon: 'bullet' | 'shell'; x0: number; y0: number; x1: number; y1: number }
-  | { t: 'death'; x: number; y: number; big: boolean };
+  | {
+      t: 'death';
+      x: number;
+      y: number;
+      kind: 'unit' | 'building';
+      type: ItemType;
+      owner: number;
+      /** Body facing, for wreck orientation. */
+      fx: number;
+      fy: number;
+      /** Building footprint in tiles (0 for units). */
+      tx: number;
+      ty: number;
+      w: number;
+      h: number;
+    };
 
 export interface World {
   tick: number;

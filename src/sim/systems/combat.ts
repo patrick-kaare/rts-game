@@ -89,5 +89,18 @@ export function fire(world: World, e: Entity, t: Entity, weapon: Weapon): void {
 
 export function killEntity(world: World, t: Entity): void {
   removeEntity(world, t);
-  world.events.push({ t: 'death', x: t.x, y: t.y, big: t.kind === 'building' || t.type !== 'rifleman' });
+  world.events.push({
+    t: 'death',
+    x: t.x,
+    y: t.y,
+    kind: t.kind,
+    type: t.type,
+    owner: t.owner,
+    fx: t.fx,
+    fy: t.fy,
+    tx: t.tx,
+    ty: t.ty,
+    w: t.kind === 'building' ? t.w : 0,
+    h: t.kind === 'building' ? t.h : 0,
+  });
 }

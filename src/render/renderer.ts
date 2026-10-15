@@ -5,6 +5,7 @@ import { BUILDINGS } from '../sim/data/buildings';
 import { canPlace, tileBuildable } from '../sim/systems/construction';
 import { TILE, Terrain, type Entity, type SimEvent, type World } from '../sim/types';
 import { areAllies } from '../sim/world';
+import { Effects } from './effects';
 import { COLORS, TEAM, hpColor } from './palette';
 import { drawBuilding, drawHarvester, drawRifleman, drawTank } from './shapes';
 
@@ -18,7 +19,7 @@ const ORE_CHUNK = 16;
 const S = TILE_PX / TILE;
 
 interface Effect {
-  kind: 'shot' | 'shell' | 'death' | 'bigDeath' | 'marker';
+  kind: 'shot' | 'shell' | 'marker';
   x0: number;
   y0: number;
   x1: number;
@@ -45,6 +46,7 @@ export class Renderer {
   private oreChunks: Graphics[] = [];
   /** Dots last drawn per tile; a chunk is redrawn when any of its tiles changes. */
   private oreDots = new Uint8Array(0);
+  private groundFx = new Graphics();
   private buildings = new Graphics();
   private units = new Graphics();
   private effectsG = new Graphics();
@@ -56,6 +58,7 @@ export class Renderer {
   private fogTexture: Texture;
   private fogSprite: Sprite;
   private effects: Effect[] = [];
+  private fx = new Effects();
   private oreVersion = -1;
   private fogTick = -1;
   private remembered = new Map<number, RememberedBuilding>();
@@ -69,7 +72,7 @@ export class Renderer {
     this.fogImage = this.fogCtx.createImageData(64, 64);
     this.fogTexture = Texture.from(this.fogCanvas, true);
     this.fogSprite = new Sprite(this.fogTexture);
-    this.root.addChild(this.terrain, this.ore, this.buildings, this.units, this.effectsG, this.fogSprite, this.overlay);
+    this.root.addChild(this.terrain, this.ore, this.groundFx, this.buildings, this.units, this.effectsG, this.fogSprite, this.overlay);
     app.stage.addChild(this.root, this.screen);
   }
 
@@ -78,6 +81,7 @@ export class Renderer {
     this.localPlayer = localPlayer;
     this.remembered.clear();
     this.effects = [];
+    this.fx.reset();
     this.oreVersion = -1;
     this.oreDots = new Uint8Array(0);
     this.fogTick = -1;
@@ -115,11 +119,14 @@ export class Renderer {
           x1: ev.x1 * S + (Math.random() - 0.5) * jitter,
           y1: ev.y1 * S + (Math.random() - 0.5) * jitter,
           born: now,
-          life: ev.weapon === 'shell' ? 220 : 90,
+          life: ev.weapon === 'shell' ? 180 : 70,
           color: ev.weapon === 'shell' ? COLORS.shellShot : COLORS.bulletShot,
         });
+        const shot = this.effects[this.effects.length - 1];
+        this.fx.muzzleFlash(shot.x0, shot.y0, shot.x1, shot.y1, ev.weapon);
+        this.fx.impact(shot.x1, shot.y1, ev.weapon);
       } else {
-        this.effects.push({ kind: ev.big ? 'bigDeath' : 'death', x0: ev.x * S, y0: ev.y * S, x1: 0, y1: 0, born: now, life: ev.big ? 700 : 400, color: 0xff7a1a });
+        this.fx.death(ev);
       }
     }
   }
@@ -160,6 +167,8 @@ export class Renderer {
       drawBuilding(b, r.type, r.tx * TILE_PX, r.ty * TILE_PX, r.w, r.h, TEAM[r.owner], !seen);
     }
 
+    this.fx.update(performance.now());
+
     // Units, interpolated between the previous and current tick.
     const u = this.units.clear();
     const o = this.overlay.clear();
@@ -193,8 +202,17 @@ export class Renderer {
       if (selected) this.brackets(o, x, y, w, h);
       if (selected && e.owner === me && e.rallyX >= 0) this.rallyLine(o, x + w / 2, y + h, e.rallyX, e.rallyY);
       if (selected || state.hovered === e.id) this.healthBar(o, x + 4, y - 7, w - 8, e.hp / e.maxHp);
+      if (x + w >= view.x0 && x <= view.x1 && y + h >= view.y0 && y <= view.y1) this.fx.buildingDamage(e);
     }
 
+    const now = performance.now();
+    const seen = (px: number, py: number) => {
+      const tx = Math.floor(px / TILE_PX);
+      const ty = Math.floor(py / TILE_PX);
+      return tx >= 0 && ty >= 0 && tx < world.w && ty < world.h && visible[ty * world.w + tx] === 1;
+    };
+    this.fx.drawGround(this.groundFx.clear(), now, seen);
+    this.fx.drawAir(this.effectsG.clear(), now, seen);
     this.drawEffects(visible);
     this.drawPlacement(state, camera);
     this.drawScreenOverlay(state);
@@ -250,7 +268,7 @@ export class Renderer {
 
   private drawEffects(visible: Uint8Array) {
     const now = performance.now();
-    const g = this.effectsG.clear();
+    const g = this.effectsG;
     const w = this.world.w;
     this.effects = this.effects.filter((f) => now - f.born < f.life);
     for (const f of this.effects) {
@@ -269,13 +287,6 @@ export class Renderer {
           g.moveTo(f.x0, f.y0).lineTo(f.x1, f.y1).stroke({ width: 2, color: f.color, alpha: a * 0.8 });
           g.circle(f.x1, f.y1, 3 + t * 7).fill({ color: f.color, alpha: a * 0.6 });
           break;
-        case 'death':
-        case 'bigDeath': {
-          const r = (f.kind === 'bigDeath' ? 36 : 14) * (0.3 + t);
-          g.circle(f.x0, f.y0, r).fill({ color: f.color, alpha: a * 0.5 });
-          g.circle(f.x0, f.y0, r * 1.3).stroke({ width: 2, color: 0xffd08a, alpha: a });
-          break;
-        }
         case 'marker': {
           const r = 10 * (1 - t) + 3;
           g.moveTo(f.x0 - r, f.y0 - r).lineTo(f.x0 + r, f.y0 + r).stroke({ width: 2, color: f.color, alpha: a });

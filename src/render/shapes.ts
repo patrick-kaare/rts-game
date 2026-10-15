@@ -42,6 +42,24 @@ export function drawHarvester(g: Graphics, x: number, y: number, facing: number,
   }
 }
 
+/** Charred hull left behind by a destroyed vehicle. */
+export function drawWreck(g: Graphics, x: number, y: number, facing: number, type: string, alpha: number) {
+  const body = { color: COLORS.fx.wreck, alpha };
+  const edge = { width: 1.5, color: COLORS.fx.wreckEdge, alpha };
+  if (type === 'tank') {
+    g.poly(rotated(x, y, facing, [-11, -8, 11, -8, 11, 8, -11, 8])).fill(body).stroke(edge);
+    // Turret knocked askew, barrel snapped short.
+    const turret = facing + 0.7;
+    g.moveTo(x, y)
+      .lineTo(x + Math.cos(turret) * 9, y + Math.sin(turret) * 9)
+      .stroke({ width: 3, color: 0x111111, alpha });
+    g.circle(x, y, 5).fill({ color: 0x171513, alpha });
+  } else {
+    g.poly(rotated(x, y, facing, [14, 0, 0, -11, -14, 0, 0, 11])).fill(body).stroke(edge);
+    g.poly(rotated(x, y, facing, [-6, -4, 6, -4, 6, 4, -6, 4])).fill({ color: 0x111111, alpha });
+  }
+}
+
 /** Buildings: team-tinted body with a simple symbol per type. (x, y) is the top-left in pixels. */
 export function drawBuilding(g: Graphics, type: string, x: number, y: number, wTiles: number, hTiles: number, team: TeamColors, dim = false) {
   const w = wTiles * TILE_PX;
