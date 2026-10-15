@@ -1,6 +1,7 @@
 import { TILE_PX } from '../client';
 import type { Game } from '../game';
 import { TEAM } from '../render/palette';
+import { isLowPower } from '../sim/systems/production';
 import { TILE, Terrain, type World } from '../sim/types';
 
 const SIZE = 192;
@@ -84,25 +85,38 @@ export class Minimap {
     if (world.oreVersion - this.oreVersion > 50) this.redrawBase(world);
     const sx = SIZE / world.w;
     const sy = SIZE / world.h;
+    // Full power rules: radar goes dark at low power, showing only our own things.
+    const dark = world.rules.power === 'full' && isLowPower(world.players[me]);
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(this.base, 0, 0, SIZE, SIZE);
+    if (dark) {
+      ctx.fillStyle = '#16181c';
+      ctx.fillRect(0, 0, SIZE, SIZE);
+    } else ctx.drawImage(this.base, 0, 0, SIZE, SIZE);
 
     const vis = world.visible[me];
     for (const e of world.entities.values()) {
       const tx = Math.floor(e.x / TILE);
       const ty = Math.floor(e.y / TILE);
-      if (e.owner !== me && !vis[ty * world.w + tx]) continue;
+      if (e.owner !== me && (dark || !vis[ty * world.w + tx])) continue;
       ctx.fillStyle = TEAM[e.owner].css;
       if (e.kind === 'building') ctx.fillRect(e.tx * sx, e.ty * sy, e.w * sx, e.h * sy);
       else ctx.fillRect(tx * sx, ty * sy, Math.max(2, sx), Math.max(2, sy));
     }
 
-    // Fog: one pixel per tile, scaled up.
-    const exp = world.explored[me];
-    const data = this.fogImage!.data;
-    for (let i = 0; i < vis.length; i++) data[i * 4 + 3] = vis[i] ? 0 : exp[i] ? 128 : 255;
-    this.fogCtx.putImageData(this.fogImage!, 0, 0);
-    ctx.drawImage(this.fog, 0, 0, SIZE, SIZE);
+    if (dark) {
+      ctx.fillStyle = '#f87171';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('RADAR OFFLINE', SIZE / 2, SIZE / 2);
+    } else {
+      // Fog: one pixel per tile, scaled up.
+      const exp = world.explored[me];
+      const data = this.fogImage!.data;
+      for (let i = 0; i < vis.length; i++) data[i * 4 + 3] = vis[i] ? 0 : exp[i] ? 128 : 255;
+      this.fogCtx.putImageData(this.fogImage!, 0, 0);
+      ctx.drawImage(this.fog, 0, 0, SIZE, SIZE);
+    }
 
     const cam = this.game.camera;
     ctx.strokeStyle = '#fff';

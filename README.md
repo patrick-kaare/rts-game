@@ -13,7 +13,7 @@ npm run build
 ## Starting a game
 **New game** opens a lobby with 10 slots and the match rules. Set each slot to AI, Closed or Open, then press **Start**.
 
-- **Rules**: starting credits, fog of war (fog, map revealed, or no fog), map size (Auto picks one from the player count; sizes too small for the players are bumped up), terrain (see below) and starting units. The host's last choice is remembered.
+- **Rules**: starting credits, fog of war (fog, map revealed, or no fog), map size (Auto picks one from the player count; sizes too small for the players are bumped up), terrain (see below), starting units and how harsh low power is (see Low power below). The host's last choice is remembered.
 - **Teams**: each player or AI can be put on Team 1–5, or left with no team to play alone. The host can set every team; anyone else can change only their own. Teams are fixed once the match starts. Allies share vision, can't attack each other, and can build next to each other's buildings. A player is out once they have no buildings left, and the match ends when everyone still in it is on the same team. Start positions follow the slot order, so allies don't necessarily start next to each other.
 - As long as every slot is AI or Closed, the game runs entirely in the browser and no server is needed.
 - Setting a slot to **Open** moves the lobby to the game server (run both `npm run dev` and `npm run server`). You get a 4-letter code and an invite link; others use **Join** with the code or open the link. Open slots nobody joined are left out when the game starts.
@@ -42,7 +42,12 @@ Buildings can go on grass and roads, but not in forest or on bridges. **Classic*
 - **Gun Turret** (barracks): cannon that outranges tanks and is strong against vehicles.
 - **Wall**: cheap concrete block that stops movement. Drag to lay a straight line of up to 8 segments: the build pays for the first one, and each extra one costs $25 on placement. Units never shoot walls on their own, only when ordered to, and walls don't keep you in the game.
 
-Pillboxes and turrets use power and **go offline at low power**. Defenses and walls don't extend the area you can build in; only regular buildings do.
+Defenses and walls don't extend the area you can build in; only regular buildings do.
+
+### Low power
+When buildings use more power than you produce, pillboxes and turrets **go offline** and production slows. The lobby's **Low power** setting picks how harsh this is:
+- **Full effects** (default): build speed and refinery unloading scale with produced / used power (down to 25%), the minimap goes dark except for your own units and buildings, and damaged power plants (and the construction yard) produce power in proportion to their health.
+- **Slower builds only**: production runs at half speed; nothing else changes.
 
 ## Controls
 - **LMB**: select / drag box (**Shift** adds; double-click selects all of that type on screen)

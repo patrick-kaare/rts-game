@@ -71,7 +71,7 @@ export interface Entity {
 
 export interface Queue {
   items: ItemType[];
-  /** Progress out of itemProgressTotal: the build speed percentage per tick, halved at low power. */
+  /** Progress out of itemProgressTotal: the build speed percentage per tick, scaled by power efficiency. */
   progress: number;
   /** Credits spent on the current item so far. */
   spent: number;

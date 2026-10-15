@@ -7,6 +7,7 @@ import { findPath } from '../src/sim/pathfinding';
 import { DEFAULT_RULES, type Difficulty, type GameRules } from '../src/sim/rules';
 import { acquireTarget } from '../src/sim/systems/combat';
 import { canPlace, wallLine } from '../src/sim/systems/construction';
+import { powerEfficiency, updatePower } from '../src/sim/systems/production';
 import { updateFog } from '../src/sim/systems/fog';
 import { stepWorld } from '../src/sim/step';
 import { TILE, Terrain, type Entity, type World } from '../src/sim/types';
@@ -267,6 +268,78 @@ describe('defenses', () => {
   });
 });
 
+describe('low power', () => {
+  /** CY (+15) and barracks (-20), plus extra consumers. */
+  function lowBase(power: GameRules['power'], extra: ('factory' | 'refinery')[] = []): World {
+    const w = flatWorld();
+    w.rules = { ...w.rules, power };
+    w.players[0].credits = 10000;
+    addBuilding(w, 0, 'cy', 5, 5);
+    addBuilding(w, 0, 'barracks', 5, 9);
+    extra.forEach((t, i) => addBuilding(w, 0, t, 10 + i * 4, 5));
+    updatePower(w);
+    return w;
+  }
+
+  it('scales efficiency with the shortfall under full rules, down to a floor', () => {
+    const p = (w: World) => powerEfficiency(w, w.players[0]);
+    expect(p(lowBase('full'))).toBe(75); // 15 / 20
+    expect(p(lowBase('full', ['factory']))).toBe(30); // 15 / 50
+    expect(p(lowBase('full', ['factory', 'refinery']))).toBe(25); // 15 / 90, floored
+    expect(p(lowBase('basic', ['factory', 'refinery']))).toBe(50);
+    expect(p(lowBase('basic'))).toBe(50);
+  });
+
+  it('slows production by the efficiency', () => {
+    for (const [power, step] of [['full', 150], ['basic', 100]] as const) {
+      const w = lowBase(power);
+      applyCommand(w, 0, { t: 'build', item: 'rifleman' });
+      stepWorld(w);
+      expect(w.players[0].queues.infantry.progress).toBe(step);
+    }
+  });
+
+  it('damaged power producers yield less under full rules only', () => {
+    for (const [power, produced] of [['full', 15 + 50], ['basic', 115]] as const) {
+      const w = lowBase(power);
+      const plant = addBuilding(w, 0, 'power', 9, 9);
+      plant.hp = plant.maxHp / 2;
+      updatePower(w);
+      expect(w.players[0].powerProduced).toBe(produced);
+    }
+  });
+
+  it('slows refining under full rules', () => {
+    function ticksToUnload(power: GameRules['power'], plant: boolean): number {
+      const w = flatWorld();
+      w.rules = { ...w.rules, power };
+      w.players[0].credits = 0;
+      addBuilding(w, 0, 'cy', 5, 10);
+      if (plant) addBuilding(w, 0, 'power', 9, 5);
+      const ref = addBuilding(w, 0, 'refinery', 5, 5);
+      const harv = addUnit(w, 0, 'harvester', 6 * TILE, 8 * TILE);
+      harv.cargo = 100;
+      harv.order = { t: 'harvest', state: 'unloading', tx: -1, ty: -1, refinery: ref.id };
+      for (let i = 1; i < 100; i++) {
+        stepWorld(w);
+        if (harv.cargo === 0) {
+          expect(w.players[0].credits).toBe(100);
+          return i;
+        }
+      }
+      throw new Error('never unloaded');
+    }
+    expect(ticksToUnload('full', true)).toBe(4);
+    expect(ticksToUnload('basic', false)).toBe(4);
+    // 15 / 40 power: 37% of ticks.
+    expect(ticksToUnload('full', false)).toBeGreaterThanOrEqual(10);
+  });
+
+  it('is part of the state hash', () => {
+    expect(stateHash(createWorld(5, 2, { ...DEFAULT_RULES, power: 'basic' }))).not.toBe(stateHash(createWorld(5, 2, { ...DEFAULT_RULES, power: 'full' })));
+  });
+});
+
 describe('wall lines', () => {
   function ready(w: World) {
     w.players[0].queues.building = { items: ['wall'], progress: 4000, spent: 25, ready: true };
@@ -309,19 +382,19 @@ describe('rules', () => {
   const units = (w: World, owner: number) => [...w.entities.values()].filter((e) => e.owner === owner && e.kind === 'unit').map((e) => e.type);
 
   it('sets starting credits and units', () => {
-    const w = createWorld(3, 3, { credits: 5000, fog: 'full', mapSize: 'auto', startUnits: 'army', terrain: 'rich' });
+    const w = createWorld(3, 3, { credits: 5000, fog: 'full', mapSize: 'auto', startUnits: 'army', terrain: 'rich', power: 'full' });
     for (const p of w.players) {
       expect(p.credits).toBe(5000);
       expect(units(w, p.id).sort()).toEqual(['rifleman', 'rifleman', 'rifleman', 'rifleman', 'tank', 'tank']);
     }
     // Every starting unit stands on open ground.
     for (const e of w.entities.values()) if (e.kind === 'unit') expect(w.blocked[tileOf(w, e.x, e.y)]).toBe(0);
-    expect(units(createWorld(3, 2, { credits: 1000, fog: 'full', mapSize: 'auto', startUnits: 'none', terrain: 'rich' }), 0)).toEqual([]);
+    expect(units(createWorld(3, 2, { credits: 1000, fog: 'full', mapSize: 'auto', startUnits: 'none', terrain: 'rich', power: 'full' }), 0)).toEqual([]);
     expect(units(createWorld(3), 0)).toEqual(['rifleman', 'rifleman']);
   });
 
   it('picks the map size, but never too small for the players', () => {
-    const rules = (mapSize: GameRules['mapSize']): GameRules => ({ credits: 3000, fog: 'full', mapSize, startUnits: 'squad', terrain: 'rich' });
+    const rules = (mapSize: GameRules['mapSize']): GameRules => ({ credits: 3000, fog: 'full', mapSize, startUnits: 'squad', terrain: 'rich', power: 'full' });
     expect(createWorld(1, 2, rules('huge')).w).toBe(160);
     expect(createWorld(1, 4, rules('small')).w).toBe(64);
     expect(createWorld(1, 8, rules('small')).w).toBe(96);
@@ -329,19 +402,19 @@ describe('rules', () => {
   });
 
   it('fog: explored map and no fog', () => {
-    const explored = createWorld(1, 2, { credits: 3000, fog: 'explored', mapSize: 'auto', startUnits: 'squad', terrain: 'rich' });
+    const explored = createWorld(1, 2, { credits: 3000, fog: 'explored', mapSize: 'auto', startUnits: 'squad', terrain: 'rich', power: 'full' });
     stepWorld(explored);
     expect(explored.explored[0].every((v) => v === 1)).toBe(true);
     expect(explored.visible[0].every((v) => v === 1)).toBe(false);
-    const off = createWorld(1, 2, { credits: 3000, fog: 'off', mapSize: 'auto', startUnits: 'squad', terrain: 'rich' });
+    const off = createWorld(1, 2, { credits: 3000, fog: 'off', mapSize: 'auto', startUnits: 'squad', terrain: 'rich', power: 'full' });
     for (let i = 0; i < 5; i++) stepWorld(off);
     expect(off.visible[1].every((v) => v === 1)).toBe(true);
     expect(off.explored[1].every((v) => v === 1)).toBe(true);
   });
 
   it('is part of the state hash', () => {
-    const a = createWorld(5, 2, { credits: 3000, fog: 'full', mapSize: 'auto', startUnits: 'squad', terrain: 'rich' });
-    const b = createWorld(5, 2, { credits: 3000, fog: 'off', mapSize: 'auto', startUnits: 'squad', terrain: 'rich' });
+    const a = createWorld(5, 2, { credits: 3000, fog: 'full', mapSize: 'auto', startUnits: 'squad', terrain: 'rich', power: 'full' });
+    const b = createWorld(5, 2, { credits: 3000, fog: 'off', mapSize: 'auto', startUnits: 'squad', terrain: 'rich', power: 'full' });
     expect(stateHash(a)).not.toBe(stateHash(b));
   });
 });
@@ -412,7 +485,7 @@ describe('teams', () => {
     expect(stateHash(createWorld(5, 3, DEFAULT_RULES, [1, 1, 0]))).not.toBe(stateHash(createWorld(5, 3)));
   });
 
-  const teamRules: GameRules = { credits: 10000, fog: 'full', mapSize: 'small', startUnits: 'army', terrain: 'rich' };
+  const teamRules: GameRules = { credits: 10000, fog: 'full', mapSize: 'small', startUnits: 'army', terrain: 'rich', power: 'full' };
 
   it('a 2v2 AI match is deterministic', () => {
     const a = aiMatch(4, 4, teamRules, [1, 1, 2, 2]);
@@ -467,6 +540,7 @@ describe('difficulty', () => {
     const w = flatWorld();
     w.players[0].difficulty = difficulty;
     w.players[0].credits = 0;
+    addBuilding(w, 0, 'power', 9, 5);
     const ref = addBuilding(w, 0, 'refinery', 5, 5);
     const harv = addUnit(w, 0, 'harvester', 6 * TILE, 8 * TILE);
     harv.cargo = 100;
@@ -500,7 +574,7 @@ describe('difficulty', () => {
 
 describe('AI match', () => {
   it('is deterministic with non-default rules', () => {
-    const rules: GameRules = { credits: 10000, fog: 'off', mapSize: 'medium', startUnits: 'army', terrain: 'rich' };
+    const rules: GameRules = { credits: 10000, fog: 'off', mapSize: 'medium', startUnits: 'army', terrain: 'rich', power: 'basic' };
     const a = aiMatch(8, 3, rules);
     const b = aiMatch(8, 3, rules);
     for (let i = 0; i < 2000; i++) {

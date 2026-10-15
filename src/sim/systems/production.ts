@@ -15,17 +15,32 @@ export function updatePower(world: World): void {
     p.powerProduced = 0;
     p.powerUsed = 0;
   }
+  // Full power rules: damaged producers yield in proportion to their health.
+  const scaled = world.rules.power === 'full';
   for (const e of world.entities.values()) {
     if (e.kind !== 'building') continue;
     const pw = BUILDINGS[e.type as keyof typeof BUILDINGS].power;
     const p = world.players[e.owner];
-    if (pw > 0) p.powerProduced += pw;
+    if (pw > 0) p.powerProduced += scaled ? Math.floor((pw * e.hp) / e.maxHp) : pw;
     else p.powerUsed -= pw;
   }
 }
 
 export function isLowPower(p: Player): boolean {
   return p.powerUsed > p.powerProduced;
+}
+
+/** Lowest efficiency under full power rules, however big the shortfall. */
+export const MIN_POWER_EFFICIENCY = 25;
+
+/**
+ * Percentage of normal speed for production and refining. Basic rules halve it at
+ * low power; full rules scale it with produced / used, down to MIN_POWER_EFFICIENCY.
+ */
+export function powerEfficiency(world: World, p: Player): number {
+  if (!isLowPower(p)) return 100;
+  if (world.rules.power === 'basic') return 50;
+  return Math.max(MIN_POWER_EFFICIENCY, Math.floor((p.powerProduced * 100) / p.powerUsed));
 }
 
 /** Whether the item's prerequisites and producer exist for this player. */
@@ -38,7 +53,7 @@ export function canBuild(world: World, owner: number, item: ItemType): boolean {
 export function updateProduction(world: World): void {
   for (const p of world.players) {
     if (p.defeated) continue;
-    const step = DIFFICULTY[p.difficulty].build * (isLowPower(p) ? 1 : 2);
+    const step = Math.floor((DIFFICULTY[p.difficulty].build * 2 * powerEfficiency(world, p)) / 100);
     for (const kind of QUEUE_KINDS) {
       const q = p.queues[kind];
       if (q.items.length === 0 || q.ready) continue;

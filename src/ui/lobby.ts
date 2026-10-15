@@ -8,6 +8,7 @@ import {
   DIFFICULTY_OPTIONS,
   FOG_OPTIONS,
   MAP_SIZE_OPTIONS,
+  POWER_OPTIONS,
   START_UNITS_OPTIONS,
   TERRAIN_OPTIONS,
   cleanRules,
@@ -73,6 +74,7 @@ function loadRules(): GameRules {
 const FOG_TEXT = { full: 'Fog of war', explored: 'Map revealed', off: 'No fog' };
 const START_UNITS_TEXT = { none: 'Construction yard only', squad: '2 riflemen', army: '4 riflemen, 2 tanks' };
 const TERRAIN_TEXT = { rich: 'Rivers, roads and forests', classic: 'Classic' };
+const POWER_TEXT = { full: 'Full effects', basic: 'Slower builds only' };
 const MAP_SIZE_TEXT = { auto: 'Auto', small: 'Small', medium: 'Medium', large: 'Large', huge: 'Huge' };
 const SLOT_TEXT = { open: 'Open', ai: 'AI', closed: 'Closed' };
 const DIFFICULTY_TEXT = { easy: 'Easy', normal: 'Normal', hard: 'Hard' };
@@ -385,6 +387,7 @@ export class Lobby {
       ],
       ['Terrain', TERRAIN_OPTIONS, rules.terrain, (v) => TERRAIN_TEXT[v as GameRules['terrain']], (v) => (rules.terrain = v as GameRules['terrain']), () => false],
       ['Units', START_UNITS_OPTIONS, rules.startUnits, (v) => START_UNITS_TEXT[v as GameRules['startUnits']], (v) => (rules.startUnits = v as GameRules['startUnits']), () => false],
+      ['Low power', POWER_OPTIONS, rules.power, (v) => POWER_TEXT[v as GameRules['power']], (v) => (rules.power = v as GameRules['power']), () => false],
     ];
     const grid = document.createElement('div');
     grid.className = 'rules';

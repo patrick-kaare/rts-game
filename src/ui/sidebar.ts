@@ -2,7 +2,7 @@ import type { Game } from '../game';
 import { TEAM } from '../render/palette';
 import { MAX_WALL_LINE } from '../sim/data/buildings';
 import { BUILD_MENU, isBuildingType, itemBuildTicks, itemCost, itemName, itemPrereq, itemProgressTotal, queueKindOf } from '../sim/data/items';
-import { canBuild, isLowPower } from '../sim/systems/production';
+import { canBuild, isLowPower, powerEfficiency } from '../sim/systems/production';
 import type { ItemType, QueueKind, World } from '../sim/types';
 import { buildingDef, unitDef } from '../sim/world';
 import { Minimap } from './minimap';
@@ -132,7 +132,8 @@ export class Sidebar {
     const total = Math.max(p.powerProduced, p.powerUsed, 1);
     this.powerBar.style.width = `${(p.powerUsed / total) * 100}%`;
     this.powerBar.classList.toggle('low', p.powerUsed > p.powerProduced);
-    this.powerText.textContent = `Power ${p.powerUsed} / ${p.powerProduced}${p.powerUsed > p.powerProduced ? ' — LOW' : ''}`;
+    const low = isLowPower(p) ? (world.rules.power === 'full' ? ` — LOW (${powerEfficiency(world, p)}%)` : ' — LOW') : '';
+    this.powerText.textContent = `Power ${p.powerUsed} / ${p.powerProduced}${low}`;
 
     for (const b of this.buttons) {
       const q = p.queues[queueKindOf(b.item)];

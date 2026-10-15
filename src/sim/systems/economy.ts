@@ -4,6 +4,7 @@ import { DIFFICULTY } from '../rules';
 import { TILE, type Entity, type Order, type World } from '../types';
 import { distSqToEntity, tileOf } from '../world';
 import { clearPath, followPath, isMoving, setPath } from './movement';
+import { powerEfficiency } from './production';
 
 type HarvestOrder = Extract<Order, { t: 'harvest' }>;
 
@@ -86,9 +87,14 @@ export function updateHarvester(world: World, e: Entity): void {
         o.refinery = 0;
         return;
       }
+      const p = world.players[e.owner];
+      // Full power rules: at low power, unload on only that share of ticks.
+      if (world.rules.power === 'full') {
+        const eff = powerEfficiency(world, p);
+        if (eff < 100 && Math.floor((world.tick * eff) / 100) === Math.floor(((world.tick - 1) * eff) / 100)) return;
+      }
       const amount = Math.min(UNLOAD_RATE, e.cargo);
       e.cargo -= amount;
-      const p = world.players[e.owner];
       p.credits += Math.floor((amount * DIFFICULTY[p.difficulty].income) / 100);
       if (e.cargo === 0) o.state = 'seek';
       return;
