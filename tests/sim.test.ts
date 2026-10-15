@@ -14,6 +14,8 @@ import { stepWorld } from '../src/sim/step';
 import { TILE, Terrain, type Entity, type World } from '../src/sim/types';
 import { addBuilding, addUnit, createWorld, removeEntity, tileOf } from '../src/sim/world';
 import { aiMatch } from './helpers';
+import { AIController } from '../src/ai/ai';
+import { LocalTransport } from '../src/net/local';
 
 function flatWorld(): World {
   const w = createWorld(1);
@@ -730,6 +732,80 @@ describe('AI match', () => {
     expect(all.some((e) => e.type === 'refinery')).toBe(true);
     expect(all.some((e) => e.type === 'factory')).toBe(true);
     expect(all.some((e) => e.type === 'pillbox' || e.type === 'turret')).toBe(true);
+  });
+});
+
+describe('AI tactics', () => {
+  /** Player 0 is an AI with a base at (5, 5); the enemy start is at (60, 0). Its staging point is (13, 5). */
+  function aiWorld() {
+    const w = flatWorld();
+    w.players[0].startX = 5;
+    w.players[0].startY = 5;
+    w.players[1].startX = 60;
+    w.players[1].startY = 0;
+    w.players[0].credits = 0;
+    addBuilding(w, 0, 'cy', 5, 5);
+    // Past the first wave time.
+    w.tick = 1200;
+    const transport = new LocalTransport();
+    const ai = new AIController(0, transport);
+    const step = () => {
+      transport.currentTick = w.tick;
+      ai.update(w);
+      for (const c of transport.take(w.tick)) applyCommand(w, c.player, c.cmd);
+      stepWorld(w);
+    };
+    return { w, step };
+  }
+  const STAGING = { x: 13, y: 5 };
+  const nearStaging = (o: Entity['order']) => o.t === 'move' && Math.abs(o.x / TILE - STAGING.x) < 4 && Math.abs(o.y / TILE - STAGING.y) < 4;
+  /** Units standing gathered on the staging point. */
+  function gathered(w: World, type: 'rifleman' | 'tank', n: number): Entity[] {
+    return Array.from({ length: n }, (_, k) => addUnit(w, 0, type, (STAGING.x - 1 + (k % 3)) * TILE + TILE / 2, (STAGING.y - 1 + Math.floor(k / 3)) * TILE + TILE / 2));
+  }
+
+  it('gathers the army at the staging point before attacking', () => {
+    const { w, step } = aiWorld();
+    const units = Array.from({ length: 6 }, (_, k) => addUnit(w, 0, 'rifleman', (5 + k) * TILE + TILE / 2, 22 * TILE + TILE / 2));
+    for (let i = 0; i < 30; i++) step();
+    for (const u of units) expect(nearStaging(u.order)).toBe(true);
+    let attacked = false;
+    for (let i = 0; i < 1500 && !attacked; i++) {
+      step();
+      attacked = units.some((u) => u.order.t === 'attackMove');
+    }
+    expect(attacked).toBe(true);
+    // Everyone set out from the staging point together.
+    for (const u of units) expect(Math.abs(u.x / TILE - STAGING.x) < 6 && Math.abs(u.y / TILE - STAGING.y) < 6).toBe(true);
+  });
+
+  it('pulls badly damaged units back home', () => {
+    const { w, step } = aiWorld();
+    const units = gathered(w, 'rifleman', 6);
+    for (let i = 0; i < 30; i++) step();
+    expect(units.every((u) => u.order.t === 'attackMove')).toBe(true);
+    units[0].hp = Math.floor(units[0].maxHp * 0.3);
+    for (let i = 0; i < 20; i++) step();
+    expect(nearStaging(units[0].order)).toBe(true);
+    expect(units.slice(1).every((u) => u.order.t === 'attackMove')).toBe(true);
+  });
+
+  it('falls back as a whole when the wave is mostly lost', () => {
+    const { w, step } = aiWorld();
+    const units = gathered(w, 'rifleman', 6);
+    for (let i = 0; i < 30; i++) step();
+    for (const u of units.slice(0, 4)) removeEntity(w, u);
+    for (let i = 0; i < 20; i++) step();
+    for (const u of units.slice(4)) expect(nearStaging(u.order)).toBe(true);
+  });
+
+  it('sends tanks after visible enemy harvesters', () => {
+    const { w, step } = aiWorld();
+    const tanks = gathered(w, 'tank', 6);
+    for (let i = 0; i < 30; i++) step();
+    const harv = addUnit(w, 1, 'harvester', 18 * TILE + TILE / 2, 10 * TILE + TILE / 2);
+    for (let i = 0; i < 20; i++) step();
+    expect(tanks.every((t) => t.order.t === 'attack' && t.order.target === harv.id)).toBe(true);
   });
 });
 

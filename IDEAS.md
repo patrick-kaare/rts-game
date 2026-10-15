@@ -26,7 +26,6 @@ Ordered roughly by how much each would improve play compared to the work involve
 
 ## AI
 - **Difficulty levels** (Easy, Normal, Hard), set by build speed and bonus income.
-- **Smarter attacks**: gather an army before attacking, retreat damaged units, target harvesters.
 - **AI personalities** such as rusher, turtle and economy-focused.
 
 ## Multiplayer
