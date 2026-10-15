@@ -31,6 +31,12 @@ With **Terrain: Rivers, roads and forests** (the default), maps get:
 
 Buildings can go on grass and roads, but not in forest or on bridges. **Classic** keeps the older maps with rock and water blobs only.
 
+## Units
+- **Rifleman** (barracks): cheap infantry, strong against infantry, weak against vehicles.
+- **Jeep** (factory): fast scout with long sight and a light machine gun. Good for exploring through the fog and hunting infantry, but fragile and nearly harmless against vehicles and buildings.
+- **Tank** (factory): main battle unit, strong against vehicles and buildings.
+- **Harvester** (factory, and one free with each refinery): gathers ore and brings it to a refinery.
+
 ## Controls
 - **LMB**: select / drag box (**Shift** adds; double-click selects all of that type on screen)
 - **RMB**: context command: move, attack an enemy, harvest ore (harvesters), dock at a refinery. While placing a building, RMB cancels placement. With a barracks or factory selected, RMB sets its rally point, where new units walk to (RMB on the building itself clears it).

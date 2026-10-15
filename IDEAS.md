@@ -18,7 +18,6 @@ Ordered roughly by how much each would improve play compared to the work involve
 ## Units and buildings
 - **Defensive structures**: a gun turret against vehicles, a pillbox against infantry and a wall.
 - **Rocket infantry**: a cheap counter to tanks (riflemen only do 25% damage to vehicles).
-- **Fast scout vehicle**: a jeep or buggy for exploring through the fog.
 - **Artillery**: long range, can't fire up close, strong against buildings.
 - **Engineer**: captures or repairs buildings.
 - **Tech building**: a radar or tech center that unlocks the minimap and higher-tier units.

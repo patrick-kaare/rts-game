@@ -21,6 +21,20 @@ export function drawRifleman(g: Graphics, x: number, y: number, aim: number, tea
   g.circle(x, y, 5.5).fill(team.main).stroke({ width: 1.5, color: team.dark });
 }
 
+export function drawJeep(g: Graphics, x: number, y: number, facing: number, aim: number, team: TeamColors) {
+  // Wheels.
+  for (const [wx, wy] of [[-5, -6], [5, -6], [-5, 6], [5, 6]]) {
+    g.poly(rotated(x, y, facing, [wx - 2.5, wy - 1.5, wx + 2.5, wy - 1.5, wx + 2.5, wy + 1.5, wx - 2.5, wy + 1.5])).fill(0x222222);
+  }
+  g.poly(rotated(x, y, facing, [-8, -5, 6, -5, 8, -3, 8, 3, 6, 5, -8, 5])).fill(team.dark).stroke({ width: 1.5, color: team.main });
+  // Windshield.
+  g.poly(rotated(x, y, facing, [2, -4, 4, -4, 4, 4, 2, 4])).fill(0x9fb4c7);
+  g.moveTo(x - 2, y)
+    .lineTo(x - 2 + Math.cos(aim) * 9, y + Math.sin(aim) * 9)
+    .stroke({ width: 1.5, color: 0x111111 });
+  g.circle(x - 2, y, 2.5).fill(team.main).stroke({ width: 1, color: team.dark });
+}
+
 export function drawTank(g: Graphics, x: number, y: number, facing: number, aim: number, team: TeamColors) {
   g.poly(rotated(x, y, facing, [-11, -8, 11, -8, 11, 8, -11, 8])).fill(team.dark).stroke({ width: 1.5, color: team.main });
   // Treads.
@@ -54,6 +68,9 @@ export function drawWreck(g: Graphics, x: number, y: number, facing: number, typ
       .lineTo(x + Math.cos(turret) * 9, y + Math.sin(turret) * 9)
       .stroke({ width: 3, color: 0x111111, alpha });
     g.circle(x, y, 5).fill({ color: 0x171513, alpha });
+  } else if (type === 'jeep') {
+    g.poly(rotated(x, y, facing, [-8, -5, 6, -5, 8, -3, 8, 3, 6, 5, -8, 5])).fill(body).stroke(edge);
+    g.poly(rotated(x, y, facing, [2, -4, 4, -4, 4, 4, 2, 4])).fill({ color: 0x111111, alpha });
   } else {
     g.poly(rotated(x, y, facing, [14, 0, 0, -11, -14, 0, 0, 11])).fill(body).stroke(edge);
     g.poly(rotated(x, y, facing, [-6, -4, 6, -4, 6, 4, -6, 4])).fill({ color: 0x111111, alpha });

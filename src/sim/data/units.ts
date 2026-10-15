@@ -38,6 +38,18 @@ export const UNITS: Record<UnitType, UnitDef> = {
     weapon: { kind: 'bullet', range: 896, damage: 7, cooldown: 12 },
     prereq: ['barracks'],
   },
+  jeep: {
+    name: 'Jeep',
+    hp: 120,
+    speed: 36,
+    sight: 9,
+    radius: 70,
+    armor: 'vehicle',
+    cost: 400,
+    buildTicks: 120,
+    weapon: { kind: 'bullet', range: 1024, damage: 6, cooldown: 8 },
+    prereq: ['factory'],
+  },
   tank: {
     name: 'Tank',
     hp: 300,

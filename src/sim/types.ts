@@ -4,7 +4,7 @@ export const TILE = 256;
 export const TICK_RATE = 20;
 export const TICK_MS = 1000 / TICK_RATE;
 
-export type UnitType = 'rifleman' | 'tank' | 'harvester';
+export type UnitType = 'rifleman' | 'jeep' | 'tank' | 'harvester';
 export type BuildingType = 'cy' | 'power' | 'refinery' | 'barracks' | 'factory';
 export type ItemType = UnitType | BuildingType;
 export type QueueKind = 'building' | 'infantry' | 'vehicle';

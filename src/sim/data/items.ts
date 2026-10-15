@@ -46,5 +46,5 @@ export function itemName(item: ItemType): string {
 export const BUILD_MENU: Record<QueueKind, ItemType[]> = {
   building: ['power', 'refinery', 'barracks', 'factory'],
   infantry: ['rifleman'],
-  vehicle: ['tank', 'harvester'],
+  vehicle: ['jeep', 'tank', 'harvester'],
 };

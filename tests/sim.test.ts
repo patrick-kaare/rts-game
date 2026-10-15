@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { isValidCommand } from '../src/net/protocol';
 import { applyCommand } from '../src/sim/commands';
 import { stateHash } from '../src/sim/hash';
 import { itemBuildTicks, itemCost } from '../src/sim/data/items';
@@ -135,6 +136,50 @@ describe('production', () => {
     applyCommand(w, 0, { t: 'rally', ids: [rax.id], x: 40, y: 20 });
     applyCommand(w, 0, { t: 'rally', ids: [rax.id], x: rax.tx, y: rax.ty });
     expect([rax.rallyX, rax.rallyY]).toEqual([-1, -1]);
+  });
+});
+
+describe('jeep', () => {
+  it('is built at a factory', () => {
+    const w = flatWorld();
+    w.players[0].credits = 10000;
+    addBuilding(w, 0, 'cy', 5, 5);
+    addBuilding(w, 0, 'power', 9, 5);
+    applyCommand(w, 0, { t: 'build', item: 'jeep' });
+    expect(w.players[0].queues.vehicle.items).toEqual([]);
+    addBuilding(w, 0, 'factory', 5, 9);
+    applyCommand(w, 0, { t: 'build', item: 'jeep' });
+    expect(w.players[0].queues.vehicle.items).toEqual(['jeep']);
+    let jeep: Entity | undefined;
+    for (let i = 0; i < 3000 && !jeep; i++) {
+      stepWorld(w);
+      jeep = [...w.entities.values()].find((e) => e.owner === 0 && e.type === 'jeep');
+    }
+    expect(jeep).toBeDefined();
+    expect(isValidCommand({ t: 'build', item: 'jeep' })).toBe(true);
+  });
+
+  it('outruns a tank', () => {
+    const w = flatWorld();
+    addBuilding(w, 0, 'cy', 5, 40);
+    const jeep = addUnit(w, 0, 'jeep', 2 * TILE + TILE / 2, 10 * TILE + TILE / 2);
+    const tank = addUnit(w, 0, 'tank', 2 * TILE + TILE / 2, 20 * TILE + TILE / 2);
+    applyCommand(w, 0, { t: 'move', ids: [jeep.id], x: 50, y: 10 });
+    applyCommand(w, 0, { t: 'move', ids: [tank.id], x: 50, y: 20 });
+    for (let i = 0; i < 60; i++) stepWorld(w);
+    expect(jeep.x - 2 * TILE).toBeGreaterThan((tank.x - 2 * TILE) * 1.5);
+  });
+
+  it('sees further than a tank', () => {
+    const seen = (type: 'jeep' | 'tank') => {
+      const w = flatWorld();
+      w.entities.clear();
+      addBuilding(w, 1, 'cy', 60, 60);
+      addUnit(w, 0, type, 30 * TILE + TILE / 2, 30 * TILE + TILE / 2);
+      updateFog(w);
+      return w.visible[0].reduce((n, v) => n + v, 0);
+    };
+    expect(seen('jeep')).toBeGreaterThan(seen('tank') * 1.8);
   });
 });
 

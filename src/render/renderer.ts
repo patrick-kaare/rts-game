@@ -7,7 +7,7 @@ import { TILE, Terrain, type Entity, type SimEvent, type World } from '../sim/ty
 import { areAllies } from '../sim/world';
 import { Effects } from './effects';
 import { COLORS, TEAM, hpColor } from './palette';
-import { drawBuilding, drawHarvester, drawRifleman, drawTank } from './shapes';
+import { drawBuilding, drawHarvester, drawJeep, drawRifleman, drawTank } from './shapes';
 
 /** Tiles of solid fog drawn around the map, so its edge never shows a seam. */
 const FOG_MARGIN = 2;
@@ -182,11 +182,12 @@ export class Renderer {
       const facing = Math.atan2(e.fy, e.fx);
       const aim = e.targetId ? Math.atan2(e.ay, e.ax) : facing;
       if (e.type === 'rifleman') drawRifleman(u, x, y, aim, team);
+      else if (e.type === 'jeep') drawJeep(u, x, y, facing, aim, team);
       else if (e.type === 'tank') drawTank(u, x, y, facing, aim, team);
       else drawHarvester(u, x, y, facing, e.cargo, team);
 
       const selected = state.selection.has(e.id);
-      const r = e.type === 'rifleman' ? 8 : 15;
+      const r = e.type === 'rifleman' ? 8 : e.type === 'jeep' ? 11 : 15;
       if (selected) o.circle(x, y, r + 1).stroke({ width: 1.5, color: 0xffffff, alpha: 0.9 });
       if (selected || state.hovered === e.id) this.healthBar(o, x - r, y - r - 6, r * 2, e.hp / e.maxHp);
     }

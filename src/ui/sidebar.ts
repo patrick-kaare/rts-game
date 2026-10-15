@@ -240,6 +240,7 @@ function iconSvg(item: ItemType, color: string): string {
     barracks: `<rect x="3" y="3" width="30" height="30" fill="#2b2f36" stroke="${color}" stroke-width="2"/><path d="M7 27 L18 8 L29 27 Z" fill="none" stroke="${color}" stroke-width="2"/>`,
     factory: `<rect x="2" y="2" width="32" height="32" fill="#2b2f36" stroke="${color}" stroke-width="2"/><rect x="8" y="17" width="20" height="13" fill="#111"/><path d="M9 20 H27 M9 24 H27 M9 28 H27" stroke="${color}" stroke-width="1.5"/>`,
     rifleman: `<line x1="18" y1="18" x2="30" y2="10" stroke="#111" stroke-width="3"/><circle cx="18" cy="18" r="8" fill="${color}" stroke="#111" stroke-width="2"/>`,
+    jeep: `<rect x="8" y="6" width="7" height="4" fill="#222"/><rect x="21" y="6" width="7" height="4" fill="#222"/><rect x="8" y="26" width="7" height="4" fill="#222"/><rect x="21" y="26" width="7" height="4" fill="#222"/><path d="M5 9 H27 L31 13 V23 L27 27 H5 Z" fill="#1f2937" stroke="${color}" stroke-width="2"/><rect x="22" y="11" width="3" height="14" fill="#9fb4c7"/><line x1="14" y1="18" x2="30" y2="18" stroke="#111" stroke-width="2"/><circle cx="14" cy="18" r="4" fill="${color}"/>`,
     tank: `<rect x="4" y="9" width="28" height="18" fill="#1f2937" stroke="${color}" stroke-width="2"/><line x1="18" y1="18" x2="34" y2="18" stroke="#111" stroke-width="4"/><circle cx="18" cy="18" r="6" fill="${color}"/>`,
     harvester: `<path d="M34 18 L18 5 L2 18 L18 31 Z" fill="#1f2937" stroke="${color}" stroke-width="2"/><rect x="11" y="14" width="14" height="8" fill="#e0a82e"/>`,
   };

@@ -68,13 +68,19 @@ export class AIController {
   private manageUnits(world: World) {
     const me = world.players[this.player];
     let harvesters = 0;
-    for (const e of world.entities.values()) if (e.owner === this.player && e.type === 'harvester') harvesters++;
+    let jeeps = 0;
+    for (const e of world.entities.values()) {
+      if (e.owner !== this.player) continue;
+      if (e.type === 'harvester') harvesters++;
+      else if (e.type === 'jeep') jeeps++;
+    }
     const refineries = countBuildings(world, this.player, 'refinery');
     const wantHarv = Math.min(refineries * 2, 4);
 
     const vq = me.queues.vehicle;
     if (vq.items.length === 0 && canBuild(world, this.player, 'harvester')) {
       if (harvesters < wantHarv) this.send({ t: 'build', item: 'harvester' });
+      else if (jeeps === 0 && me.credits > 400) this.send({ t: 'build', item: 'jeep' });
       else if (me.credits > 700) this.send({ t: 'build', item: 'tank' });
     }
     const iq = me.queues.infantry;
