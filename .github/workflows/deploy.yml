@@ -1,0 +1,68 @@
+# Autodeploy: every push to master builds and restarts the game on the server.
+#
+# Runs on the self-hosted runner that scripts/setup-actions.sh registers on the
+# production box (rts.inigo.dk). The job pulls the deploy checkout in place,
+# builds, and restarts rts.service; RTS_DEPLOY_DIR comes from the runner's own
+# .env so which checkout gets deployed is a property of the machine, not of
+# this file. The runner holds exactly one sudo right: restarting rts.service.
+#
+# Only push-to-master and manual dispatch — deliberately NOT pull_request. This
+# repo is public and the runner is a real machine on a home network; a
+# pull_request trigger would let any fork run its code there.
+
+name: Deploy
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    timeout-minutes: 20
+    steps:
+      - name: Pull, build and restart
+        run: |
+          set -euo pipefail
+          DIR="${RTS_DEPLOY_DIR:-$HOME/rts-game}"
+          PORT="${RTS_PORT:-3009}"
+          if [ ! -d "$DIR/.git" ]; then
+            echo "::error::$DIR is not a git checkout."
+            echo "Set RTS_DEPLOY_DIR in the runner's .env (scripts/setup-actions.sh does this)."
+            exit 1
+          fi
+          cd "$DIR"
+          echo "::group::git pull"
+          git pull --ff-only origin master
+          git log -1 --oneline
+          echo "::endgroup::"
+          echo "::group::npm ci"
+          npm ci --no-audit --no-fund
+          echo "::endgroup::"
+          echo "::group::tests"
+          npm test
+          echo "::endgroup::"
+          echo "::group::build"
+          # Builds into dist/ while the old server keeps running; the restart
+          # below is what switches to the new code. A failed build stops here
+          # and leaves the running game untouched.
+          npm run build
+          echo "::endgroup::"
+          sudo /usr/bin/systemctl restart rts.service
+          # Say whether it actually came back, not just that restart returned.
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            sleep 1
+            if curl -fsS "http://127.0.0.1:$PORT/healthz" >/dev/null 2>&1; then
+              echo "rts.service is up: $(curl -fsS "http://127.0.0.1:$PORT/healthz")"
+              exit 0
+            fi
+          done
+          echo "::error::rts.service did not answer on :$PORT after the restart"
+          systemctl status rts.service --no-pager || true
+          journalctl -u rts.service -n 40 --no-pager || true
+          exit 1

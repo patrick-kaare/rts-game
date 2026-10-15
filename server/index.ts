@@ -1,6 +1,8 @@
 import { randomInt } from 'node:crypto';
-import { createServer as createHttpServer } from 'node:http';
-import { pathToFileURL } from 'node:url';
+import { createReadStream, existsSync, statSync } from 'node:fs';
+import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { dirname, extname, join, resolve, sep } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { ClientMsg } from '../src/net/protocol';
 import { Room, send } from './room';
@@ -22,12 +24,102 @@ export interface GameServer {
 export interface ServerOptions {
   /** Don't tick rooms on a timer; tests call room.tick() instead. */
   manualClock?: boolean;
+  /** Interface to bind; all interfaces when omitted. Production binds 127.0.0.1 behind the tunnel. */
+  host?: string;
+  /**
+   * Directory with the built client (`npm run build` → dist/). When set, the
+   * HTTP side of this server serves it, so one process behind one hostname
+   * answers both the page and /ws. In development Vite serves the client and
+   * proxies /ws here, so this stays unset.
+   */
+  staticDir?: string;
+}
+
+const MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.map': 'application/json; charset=utf-8',
+  '.webmanifest': 'application/manifest+json',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.txt': 'text/plain; charset=utf-8',
+  '.wasm': 'application/wasm',
+};
+
+/** Static file handler: real files from `root`, anything else gets index.html (the invite link is /?room=CODE). */
+function staticHandler(root: string) {
+  root = resolve(root);
+  const index = join(root, 'index.html');
+  return (req: IncomingMessage, res: ServerResponse) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.writeHead(405, { allow: 'GET, HEAD' });
+      return res.end();
+    }
+    let pathname: string;
+    try {
+      pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://localhost').pathname);
+    } catch {
+      res.writeHead(400);
+      return res.end();
+    }
+    let file = resolve(root, '.' + pathname);
+    // Never leave the root, whatever the path tried.
+    if (file !== root && !file.startsWith(root + sep)) {
+      res.writeHead(403);
+      return res.end();
+    }
+    let isFile = false;
+    try {
+      isFile = statSync(file).isFile();
+    } catch {
+      /* not there */
+    }
+    if (!isFile) {
+      if (extname(pathname) && !pathname.endsWith('.html')) {
+        // A missing asset is a 404, not the app shell — otherwise a stale
+        // bundle name would be answered with HTML and fail obscurely.
+        res.writeHead(404, { 'content-type': 'text/plain' });
+        return res.end('Not found\n');
+      }
+      file = index;
+    }
+    // Vite puts hashed bundles under /assets/, so those can be cached for good;
+    // index.html must always be re-checked or a deploy never reaches anyone.
+    const immutable = file !== index && file.startsWith(join(root, 'assets') + sep);
+    res.writeHead(200, {
+      'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream',
+      'cache-control': immutable ? 'public, max-age=31536000, immutable' : 'no-cache',
+    });
+    if (req.method === 'HEAD') return res.end();
+    createReadStream(file)
+      .on('error', () => {
+        if (!res.headersSent) res.writeHead(500);
+        res.end();
+      })
+      .pipe(res);
+  };
 }
 
 export function createServer(port: number, opts: ServerOptions = {}): Promise<GameServer> {
   const rooms = new Map<string, Room>();
   const roomOf = new Map<WebSocket, Room>();
-  const http = createHttpServer((_req, res) => {
+  const serveStatic = opts.staticDir ? staticHandler(opts.staticDir) : null;
+  const http = createHttpServer((req, res) => {
+    if (req.url === '/healthz') {
+      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      return res.end(JSON.stringify({ ok: true, rooms: rooms.size }) + '\n');
+    }
+    if (serveStatic) return serveStatic(req, res);
     res.writeHead(200, { 'content-type': 'text/plain' });
     res.end('Shape RTS game server\n');
   });
@@ -123,7 +215,7 @@ export function createServer(port: number, opts: ServerOptions = {}): Promise<Ga
   }, 60 * 1000);
 
   return new Promise((resolve) => {
-    http.listen(port, () => {
+    const onListen = () => {
       const addr = http.address();
       resolve({
         port: typeof addr === 'object' && addr ? addr.port : port,
@@ -137,11 +229,25 @@ export function createServer(port: number, opts: ServerOptions = {}): Promise<Ga
             http.closeAllConnections();
           }),
       });
-    });
+    };
+    if (opts.host) http.listen(port, opts.host, onListen);
+    else http.listen(port, onListen);
   });
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const port = Number(process.env.PORT) || 8787;
-  createServer(port).then((s) => console.log(`Game server listening on ws://localhost:${s.port}/ws`));
+  const host = process.env.HOST || undefined;
+  // STATIC_DIR=none keeps the plain game server even when a dist/ exists.
+  // Unset, it serves dist/ when there is one (production) and nothing otherwise (dev).
+  const defaultDist = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist');
+  const staticDir =
+    process.env.STATIC_DIR === 'none' ? undefined
+    : process.env.STATIC_DIR ? process.env.STATIC_DIR
+    : existsSync(join(defaultDist, 'index.html')) ? defaultDist
+    : undefined;
+  createServer(port, { host, staticDir }).then((s) => {
+    const where = `${host ?? 'localhost'}:${s.port}`;
+    console.log(`Game server listening on ws://${where}/ws` + (staticDir ? `, serving ${staticDir} on http://${where}/` : ''));
+  });
 }

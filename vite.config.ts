@@ -6,5 +6,5 @@ export default defineConfig({
     // The game server (npm run server) listens on 8787.
     proxy: { '/ws': { target: 'ws://localhost:8787', ws: true } },
   },
-  test: { include: ['tests/**/*.test.ts'] },
+  test: { include: ['tests/**/*.test.ts'], setupFiles: ['tests/setup.ts'] },
 } as any);
