@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { applyCommand } from '../src/sim/commands';
 import { stateHash } from '../src/sim/hash';
 import { findPath } from '../src/sim/pathfinding';
+import type { GameRules } from '../src/sim/rules';
 import { canPlace } from '../src/sim/systems/construction';
 import { stepWorld } from '../src/sim/step';
 import { TILE, Terrain, type Entity, type World } from '../src/sim/types';
@@ -134,7 +135,59 @@ describe('production', () => {
   });
 });
 
+describe('rules', () => {
+  const units = (w: World, owner: number) => [...w.entities.values()].filter((e) => e.owner === owner && e.kind === 'unit').map((e) => e.type);
+
+  it('sets starting credits and units', () => {
+    const w = createWorld(3, 3, { credits: 5000, fog: 'full', mapSize: 'auto', startUnits: 'army' });
+    for (const p of w.players) {
+      expect(p.credits).toBe(5000);
+      expect(units(w, p.id).sort()).toEqual(['rifleman', 'rifleman', 'rifleman', 'rifleman', 'tank', 'tank']);
+    }
+    // Every starting unit stands on open ground.
+    for (const e of w.entities.values()) if (e.kind === 'unit') expect(w.blocked[tileOf(w, e.x, e.y)]).toBe(0);
+    expect(units(createWorld(3, 2, { credits: 1000, fog: 'full', mapSize: 'auto', startUnits: 'none' }), 0)).toEqual([]);
+    expect(units(createWorld(3), 0)).toEqual(['rifleman', 'rifleman']);
+  });
+
+  it('picks the map size, but never too small for the players', () => {
+    const rules = (mapSize: GameRules['mapSize']): GameRules => ({ credits: 3000, fog: 'full', mapSize, startUnits: 'squad' });
+    expect(createWorld(1, 2, rules('huge')).w).toBe(160);
+    expect(createWorld(1, 4, rules('small')).w).toBe(64);
+    expect(createWorld(1, 8, rules('small')).w).toBe(96);
+    expect(createWorld(1, 10, rules('auto')).w).toBe(160);
+  });
+
+  it('fog: explored map and no fog', () => {
+    const explored = createWorld(1, 2, { credits: 3000, fog: 'explored', mapSize: 'auto', startUnits: 'squad' });
+    stepWorld(explored);
+    expect(explored.explored[0].every((v) => v === 1)).toBe(true);
+    expect(explored.visible[0].every((v) => v === 1)).toBe(false);
+    const off = createWorld(1, 2, { credits: 3000, fog: 'off', mapSize: 'auto', startUnits: 'squad' });
+    for (let i = 0; i < 5; i++) stepWorld(off);
+    expect(off.visible[1].every((v) => v === 1)).toBe(true);
+    expect(off.explored[1].every((v) => v === 1)).toBe(true);
+  });
+
+  it('is part of the state hash', () => {
+    const a = createWorld(5, 2, { credits: 3000, fog: 'full', mapSize: 'auto', startUnits: 'squad' });
+    const b = createWorld(5, 2, { credits: 3000, fog: 'off', mapSize: 'auto', startUnits: 'squad' });
+    expect(stateHash(a)).not.toBe(stateHash(b));
+  });
+});
+
 describe('AI match', () => {
+  it('is deterministic with non-default rules', () => {
+    const rules: GameRules = { credits: 10000, fog: 'off', mapSize: 'medium', startUnits: 'army' };
+    const a = aiMatch(8, 3, rules);
+    const b = aiMatch(8, 3, rules);
+    for (let i = 0; i < 2000; i++) {
+      a.step();
+      b.step();
+    }
+    expect(stateHash(a.world)).toBe(stateHash(b.world));
+  });
+
   it('is deterministic', () => {
     const a = aiMatch(42);
     const b = aiMatch(42);

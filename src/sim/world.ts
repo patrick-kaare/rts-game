@@ -1,6 +1,7 @@
 import { BUILDINGS } from './data/buildings';
 import { UNITS } from './data/units';
 import { generateMap } from './map';
+import { DEFAULT_RULES, type GameRules, type StartUnitsRule } from './rules';
 import {
   TILE,
   Terrain,
@@ -11,10 +12,25 @@ import {
   type World,
 } from './types';
 
-export const START_CREDITS = 3000;
+/** Starting units per setting, as tile offsets from the yard's top-left corner. */
+const START_UNITS: Record<StartUnitsRule, [UnitType, number, number][]> = {
+  none: [],
+  squad: [
+    ['rifleman', 1, 4],
+    ['rifleman', 2, 4],
+  ],
+  army: [
+    ['rifleman', 0, 4],
+    ['rifleman', 1, 4],
+    ['rifleman', 2, 4],
+    ['rifleman', 3, 4],
+    ['tank', 4, 1],
+    ['tank', 4, 3],
+  ],
+};
 
-export function createWorld(seed: number, playerCount = 2): World {
-  const map = generateMap(seed, playerCount);
+export function createWorld(seed: number, playerCount = 2, rules: GameRules = DEFAULT_RULES): World {
+  const map = generateMap(seed, playerCount, rules.mapSize);
   const n = map.w * map.h;
   const blocked = new Uint8Array(n);
   for (let i = 0; i < n; i++) blocked[i] = map.terrain[i] === Terrain.Grass ? 0 : 1;
@@ -22,6 +38,7 @@ export function createWorld(seed: number, playerCount = 2): World {
   const world: World = {
     tick: 0,
     seed,
+    rules: { ...rules },
     rng: { s: seed ^ 0x5bd1e995 },
     w: map.w,
     h: map.h,
@@ -43,7 +60,7 @@ export function createWorld(seed: number, playerCount = 2): World {
     const start = map.starts[p];
     const player: Player = {
       id: p,
-      credits: START_CREDITS,
+      credits: rules.credits,
       powerProduced: 0,
       powerUsed: 0,
       queues: {
@@ -56,12 +73,12 @@ export function createWorld(seed: number, playerCount = 2): World {
       startY: start.y,
     };
     world.players.push(player);
-    world.visible.push(new Uint8Array(n));
-    world.explored.push(new Uint8Array(n));
+    world.visible.push(new Uint8Array(n).fill(rules.fog === 'off' ? 1 : 0));
+    world.explored.push(new Uint8Array(n).fill(rules.fog === 'full' ? 0 : 1));
     addBuilding(world, p, 'cy', start.x, start.y);
-    // A couple of starting riflemen next to the yard.
-    addUnit(world, p, 'rifleman', (start.x + 1) * TILE + TILE / 2, (start.y + 4) * TILE + TILE / 2);
-    addUnit(world, p, 'rifleman', (start.x + 2) * TILE + TILE / 2, (start.y + 4) * TILE + TILE / 2);
+    for (const [type, dx, dy] of START_UNITS[rules.startUnits]) {
+      addUnit(world, p, type, (start.x + dx) * TILE + TILE / 2, (start.y + dy) * TILE + TILE / 2);
+    }
   }
   return world;
 }

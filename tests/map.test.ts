@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_PLAYERS, generateMap, mapSize } from '../src/sim/map';
+import { MAX_PLAYERS, generateMap, mapSideFor, mapSize } from '../src/sim/map';
+import { MAP_SIZE_OPTIONS } from '../src/sim/rules';
 import { Terrain } from '../src/sim/types';
 
 /** Grass tiles reachable from (x, y), 4-connected. */
@@ -48,6 +49,26 @@ describe('map generation', () => {
             const a = map.starts[i];
             const b = map.starts[j];
             expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThan(30);
+          }
+        }
+      }
+    });
+  }
+
+  for (const size of MAP_SIZE_OPTIONS) {
+    it(`connects every base on ${size} maps`, () => {
+      for (const players of [1, 2, 4, 5, 8, 10]) {
+        for (let seed = 1; seed <= 4; seed++) {
+          const map = generateMap(seed * 31, players, size);
+          expect(map.w).toBe(mapSideFor(size, players));
+          const reach = reachable(map, map.starts[0].x, map.starts[0].y);
+          for (const s of map.starts) expect(reach[s.y * map.w + s.x]).toBe(1);
+          for (let i = 0; i < players; i++) {
+            for (let j = i + 1; j < players; j++) {
+              const a = map.starts[i];
+              const b = map.starts[j];
+              expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThan(20);
+            }
           }
         }
       }

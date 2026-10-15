@@ -1,4 +1,5 @@
 import { rand, randInt } from './rng';
+import type { MapSizeRule } from './rules';
 import { Terrain } from './types';
 
 export const MAX_PLAYERS = 10;
@@ -9,6 +10,20 @@ export function mapSize(players: number): number {
   if (players <= 4) return 96;
   if (players <= 6) return 128;
   return 160;
+}
+
+export const MAP_SIDES: Record<Exclude<MapSizeRule, 'auto'>, number> = { small: 64, medium: 96, large: 128, huge: 160 };
+
+/** Smallest map side that still fits a player count: one size class below the automatic one. */
+export function minMapSize(players: number): number {
+  if (players <= 4) return 64;
+  if (players <= 8) return 96;
+  return 128;
+}
+
+/** Map side for a size setting, never smaller than the player count allows. */
+export function mapSideFor(size: MapSizeRule, players: number): number {
+  return size === 'auto' ? mapSize(players) : Math.max(MAP_SIDES[size], minMapSize(players));
 }
 
 /** Distance from the map edge to the ring of construction yard centres. */
@@ -29,10 +44,11 @@ export interface GeneratedMap {
  * mirrored to match, so the 2-player map stays perfectly fair.
  * Retries with a derived seed until every base is connected.
  */
-export function generateMap(seed: number, players = 2): GeneratedMap {
+export function generateMap(seed: number, players = 2, size: MapSizeRule = 'auto'): GeneratedMap {
   if (players < 1 || players > MAX_PLAYERS) throw new Error(`unsupported player count ${players}`);
+  const side = mapSideFor(size, players);
   for (let attempt = 0; ; attempt++) {
-    const map = tryGenerate((seed + attempt * 7919) | 0, players);
+    const map = tryGenerate((seed + attempt * 7919) | 0, players, side);
     if (map) return map;
   }
 }
@@ -57,8 +73,7 @@ function ringPoint(a: number, len: number, t: number): { x: number; y: number } 
   return { x: a, y: a + len - t };
 }
 
-function tryGenerate(seed: number, players: number): GeneratedMap | null {
-  const w = mapSize(players);
+function tryGenerate(seed: number, players: number, w: number): GeneratedMap | null {
   const h = w;
   const rng = { s: seed };
   const terrain = new Uint8Array(w * h);

@@ -1,3 +1,4 @@
+import type { GameRules } from '../sim/rules';
 import type { Command, PlayerCommand } from '../sim/types';
 import type { ClientMsg, ServerMsg, SlotInfo, SlotSetting } from './protocol';
 import type { CommandTransport } from './transport';
@@ -25,7 +26,7 @@ export class NetTransport implements CommandTransport {
   private started = false;
 
   onJoined?: (code: string, slot: number, token: string) => void;
-  onLobby?: (slots: SlotInfo[]) => void;
+  onLobby?: (slots: SlotInfo[], rules: GameRules) => void;
   /** First start of this match in this page. Rejoins after that only refill the buffer. */
   onStart?: (info: StartInfo) => void;
   onPresence?: (connected: boolean[]) => void;
@@ -38,8 +39,8 @@ export class NetTransport implements CommandTransport {
 
   constructor(private url: string) {}
 
-  create(name: string) {
-    this.open({ t: 'create', name });
+  create(name: string, rules: GameRules, slots: SlotSetting[]) {
+    this.open({ t: 'create', name, rules, slots });
   }
 
   join(code: string, name: string) {
@@ -54,6 +55,10 @@ export class NetTransport implements CommandTransport {
 
   setSlot(index: number, kind: SlotSetting) {
     this.post({ t: 'slot', index, kind });
+  }
+
+  setRules(rules: GameRules) {
+    this.post({ t: 'rules', rules });
   }
 
   start() {
@@ -110,11 +115,11 @@ export class NetTransport implements CommandTransport {
     ws.onclose = (ev) => {
       if (this.ws !== ws) return;
       this.ws = null;
+      if (this.closed) return;
       // 4000+: the server deliberately dropped this seat (other tab, kicked).
-      if (this.closed || !this.token || ev.code >= 4000) {
-        if (ev.code >= 4000) this.onError?.(ev.reason || 'Disconnected.');
-        return;
-      }
+      if (ev.code >= 4000) return this.onError?.(ev.reason || 'Disconnected.');
+      // Never got a seat: nothing to rejoin.
+      if (!this.token) return this.onError?.("Couldn't reach the game server.");
       this.onConnection?.(true);
       setTimeout(() => !this.closed && this.open({ t: 'rejoin', code: this.code, token: this.token }), RECONNECT_MS);
     };
@@ -134,7 +139,7 @@ export class NetTransport implements CommandTransport {
         this.onJoined?.(msg.code, msg.slot, msg.token);
         break;
       case 'lobby':
-        this.onLobby?.(msg.slots);
+        this.onLobby?.(msg.slots, msg.rules);
         break;
       case 'start':
         // Fill in everything we haven't run yet. Ticks without commands are implicit.

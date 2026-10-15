@@ -1,3 +1,4 @@
+import type { GameRules } from './rules';
 /** Sub-tile units per tile. All sim positions are integers in these units. */
 export const TILE = 256;
 export const TICK_RATE = 20;
@@ -115,6 +116,7 @@ export type SimEvent =
 export interface World {
   tick: number;
   seed: number;
+  rules: GameRules;
   rng: { s: number };
   w: number;
   h: number;

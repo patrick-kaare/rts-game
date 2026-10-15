@@ -1,5 +1,6 @@
 import { Application } from 'pixi.js';
 import { Game } from './game';
+import { DEFAULT_RULES } from './sim/rules';
 import { Lobby } from './ui/lobby';
 import './ui/ui.css';
 
@@ -18,11 +19,11 @@ async function main() {
   viewport.append(overlay, status);
 
   const lobby = new Lobby({
-    playLocal: (seed, ais) => game.startLocal(seed, ais),
+    playLocal: (seed, players, rules) => game.startLocal(seed, players, rules),
     playOnline: (net, info) => game.startOnline(net, info),
   });
   const game = new Game(app, viewport, document.getElementById('sidebar')!, overlay, status, {
-    onExit: () => lobby.leave(),
+    onExit: (online) => (online ? lobby.leave() : lobby.backToRoom()),
   });
   document.body.append(lobby.el);
 
@@ -30,7 +31,14 @@ async function main() {
   const seed = Number(new URLSearchParams(location.search).get('seed'));
   if (seed) {
     lobby.hide();
-    game.startLocal(seed, 1);
+    game.startLocal(
+      seed,
+      [
+        { name: 'You', ai: false },
+        { name: 'AI 2', ai: true },
+      ],
+      DEFAULT_RULES,
+    );
   } else lobby.open();
   if (import.meta.env.DEV) (window as unknown as { game: Game }).game = game;
 }

@@ -17,6 +17,8 @@ function circle(r: number): [number, number][] {
 
 export function updateFog(world: World): void {
   const { w, h } = world;
+  // Without fog, createWorld already made everything visible.
+  if (world.rules.fog === 'off') return;
   for (const v of world.visible) v.fill(0);
   for (const e of world.entities.values()) {
     const vis = world.visible[e.owner];

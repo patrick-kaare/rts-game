@@ -6,6 +6,7 @@ import {
   HASH_INTERVAL,
   SLOT_COUNT,
   cleanCommand,
+  isSlotSetting,
   isValidCommand,
   type MatchPlayer,
   type ServerMsg,
@@ -13,6 +14,7 @@ import {
   type TickBundle,
 } from '../src/net/protocol';
 import { applyCommand } from '../src/sim/commands';
+import { DEFAULT_RULES, cleanRules, isValidRules, type GameRules } from '../src/sim/rules';
 import { stateHash } from '../src/sim/hash';
 import { stepWorld } from '../src/sim/step';
 import { TICK_MS, type Command, type PlayerCommand, type World } from '../src/sim/types';
@@ -40,6 +42,7 @@ export class Room {
   /** When the room last had nobody connected, or became finished (ms since epoch). */
   idleSince = 0;
 
+  rules: GameRules;
   private world: World | null = null;
   /** Sim player id → seat index. */
   private players: number[] = [];
@@ -58,8 +61,17 @@ export class Room {
     private seed: number,
     /** Tests drive the clock by calling tick() themselves. */
     private manualClock = false,
+    /** Initial setup from the host; anything malformed falls back to the defaults. */
+    rules: unknown = DEFAULT_RULES,
+    slots: unknown = [],
   ) {
-    for (let i = 0; i < SLOT_COUNT; i++) this.seats.push({ kind: i === 1 ? 'ai' : 'open', name: '', token: '', socket: null });
+    this.rules = isValidRules(rules) ? cleanRules(rules) : { ...DEFAULT_RULES };
+    // Setups for slots 1 and up; slot 0 is the creator's.
+    const setup = Array.isArray(slots) && slots.length === SLOT_COUNT - 1 && slots.every(isSlotSetting) ? slots : null;
+    for (let i = 0; i < SLOT_COUNT; i++) {
+      const kind = i === 0 ? 'open' : (setup?.[i - 1] ?? (i === 1 ? 'ai' : 'open'));
+      this.seats.push({ kind, name: '', token: '', socket: null });
+    }
   }
 
   /** Take the first open seat. Returns the seat index, or an error message. */
@@ -114,7 +126,7 @@ export class Room {
   setSlot(from: number, index: unknown, kind: unknown) {
     if (from !== 0 || this.phase !== 'lobby') return;
     if (typeof index !== 'number' || !Number.isInteger(index) || index < 1 || index >= SLOT_COUNT) return;
-    if (kind !== 'open' && kind !== 'ai' && kind !== 'closed') return;
+    if (!isSlotSetting(kind)) return;
     const seat = this.seats[index];
     if (seat.kind === kind) return;
     if (seat.kind === 'human') {
@@ -125,13 +137,20 @@ export class Room {
     this.broadcastLobby();
   }
 
+  /** Host changes the match rules. */
+  setRules(from: number, rules: unknown) {
+    if (from !== 0 || this.phase !== 'lobby' || !isValidRules(rules)) return;
+    this.rules = cleanRules(rules);
+    this.broadcastLobby();
+  }
+
   start(from: number): string | null {
     if (from !== 0 || this.phase !== 'lobby') return null;
     const taken = this.seats.map((s, i) => [s, i] as const).filter(([s]) => s.kind === 'human' || s.kind === 'ai');
     if (taken.length < 2) return 'You need at least two players.';
     this.players = taken.map(([, i]) => i);
     this.matchPlayers = taken.map(([s, i]) => ({ name: s.kind === 'ai' ? `AI ${i + 1}` : s.name, ai: s.kind === 'ai' }));
-    this.world = createWorld(this.seed, this.players.length);
+    this.world = createWorld(this.seed, this.players.length, this.rules);
     const transport: CommandTransport = {
       send: (player, cmd) => this.pending.push({ player, cmd: structuredClone(cmd) }),
       take: () => [],
@@ -232,12 +251,12 @@ export class Room {
   }
 
   private startMsg(you: number): ServerMsg {
-    return { t: 'start', seed: this.seed, players: this.matchPlayers, you, tick: this.world!.tick, log: this.log };
+    return { t: 'start', seed: this.seed, rules: this.rules, players: this.matchPlayers, you, tick: this.world!.tick, log: this.log };
   }
 
   private broadcastLobby() {
     const slots: SlotInfo[] = this.seats.map((s) => ({ kind: s.kind, name: s.name, connected: !!s.socket }));
-    this.broadcast({ t: 'lobby', slots });
+    this.broadcast({ t: 'lobby', slots, rules: this.rules });
   }
 
   private broadcastPresence() {

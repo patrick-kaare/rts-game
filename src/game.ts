@@ -10,6 +10,7 @@ import type { CommandTransport } from './net/transport';
 import { Renderer } from './render/renderer';
 import { applyCommand } from './sim/commands';
 import { stateHash } from './sim/hash';
+import type { GameRules } from './sim/rules';
 import { stepWorld } from './sim/step';
 import { TICK_MS, type Command, type World } from './sim/types';
 import { createWorld } from './sim/world';
@@ -28,8 +29,8 @@ const JITTER_TICKS = 2;
 const CATCH_UP_NOTICE_TICKS = 40;
 
 export interface GameHooks {
-  /** Online game over: the player wants to leave. */
-  onExit(): void;
+  /** Game over: the player wants to go back to the lobby (offline) or the menu (online). */
+  onExit(online: boolean): void;
 }
 
 export class Game {
@@ -45,7 +46,7 @@ export class Game {
   readonly sidebar: Sidebar;
   private net: NetTransport | null = null;
   private ais: AIController[] = [];
-  private localConfig = { seed: 0, ais: 1 };
+  private localConfig: { players: MatchPlayer[]; rules: GameRules } | null = null;
   /** Real time owed to the sim, in ms. */
   private acc = 0;
   private lastPump = performance.now();
@@ -79,16 +80,15 @@ export class Game {
     return this.net !== null;
   }
 
-  /** Offline skirmish against `ais` computer players. */
-  startLocal(seed: number, ais: number) {
-    this.localConfig = { seed, ais };
+  /** Offline match: player 0 is the local human, the rest are AIs. */
+  startLocal(seed: number, players: MatchPlayer[], rules: GameRules) {
+    this.localConfig = { players, rules };
     this.net = null;
     const transport = new LocalTransport();
     this.transport = transport;
-    this.players = [{ name: 'You', ai: false }];
-    for (let i = 1; i <= ais; i++) this.players.push({ name: `AI ${i + 1}`, ai: true });
+    this.players = players;
     this.connected = this.players.map(() => true);
-    this.begin(createWorld(seed, ais + 1), LOCAL_PLAYER);
+    this.begin(createWorld(seed, players.length, rules), LOCAL_PLAYER);
     this.ais = this.players.flatMap((p, id) => (p.ai ? [new AIController(id, transport)] : []));
   }
 
@@ -107,7 +107,7 @@ export class Game {
     net.onMessage = () => {
       if (performance.now() - this.lastFrame > BACKGROUND_AFTER_MS) this.pump(BACKGROUND_BUDGET_MS);
     };
-    this.begin(createWorld(info.seed, info.players.length), info.you);
+    this.begin(createWorld(info.seed, info.players.length, info.rules), info.you);
   }
 
   private begin(world: World, you: number) {
@@ -217,13 +217,13 @@ export class Game {
       const won = world.winner === this.state.localPlayer;
       const winner = this.players[world.winner];
       const text = won ? 'Every enemy base has been destroyed.' : winner ? `${winner.name} wins.` : 'Nobody survived.';
-      this.showOverlay(won ? 'Victory' : 'Defeat', text, [this.endButton()]);
+      this.showOverlay(won ? 'Victory' : 'Defeat', text, this.endButtons());
     } else if (world.winner < 0 && !this.shownDefeat && world.players[this.state.localPlayer].defeated) {
       // Knocked out while others play on: let the player watch or leave.
       this.shownDefeat = true;
       this.showOverlay('Defeat', 'Your base has been destroyed. The others play on.', [
         { label: 'Keep watching', action: () => this.showOverlay(null, '') },
-        this.endButton(),
+        ...this.endButtons(),
       ]);
     }
   }
@@ -242,16 +242,29 @@ export class Game {
   }
 
   private endButton(): OverlayButton {
-    if (this.online) {
-      return {
-        label: 'Back to menu',
+    return {
+      label: 'Back to menu',
+      action: () => {
+        this.net?.close();
+        this.hooks.onExit(true);
+      },
+    };
+  }
+
+  private endButtons(): OverlayButton[] {
+    const local = this.localConfig;
+    if (this.online || !local) return [this.endButton()];
+    return [
+      { label: 'Play again', action: () => this.startLocal((Math.random() * 2 ** 31) | 0, local.players, local.rules) },
+      {
+        label: 'Back to lobby',
         action: () => {
-          this.net!.close();
-          this.hooks.onExit();
+          // Stop the sim; the AIs may still be playing on after a defeat.
+          this.gameOver = true;
+          this.hooks.onExit(false);
         },
-      };
-    }
-    return { label: 'Play again', action: () => this.startLocal((Math.random() * 2 ** 31) | 0, this.localConfig.ais) };
+      },
+    ];
   }
 
   private showOverlay(title: string | null, text: string, buttons: OverlayButton[] = []) {

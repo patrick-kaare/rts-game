@@ -1,6 +1,7 @@
 import { BUILDINGS } from '../sim/data/buildings';
 import { UNITS } from '../sim/data/units';
 import { MAX_PLAYERS } from '../sim/map';
+import type { GameRules } from '../sim/rules';
 import type { Command, PlayerCommand } from '../sim/types';
 
 /**
@@ -37,25 +38,30 @@ export interface MatchPlayer {
 export type TickBundle = [tick: number, cmds: PlayerCommand[]];
 
 export type ClientMsg =
-  | { t: 'create'; name: string }
+  /** `slots` is the setup of every slot after the host's own (slot 0), e.g. from an offline lobby. */
+  | { t: 'create'; name: string; rules: GameRules; slots: SlotSetting[] }
   | { t: 'join'; code: string; name: string }
   | { t: 'rejoin'; code: string; token: string }
   /** Host only. Setting a human's seat to 'open' removes them. */
   | { t: 'slot'; index: number; kind: SlotSetting }
+  /** Host only, in the lobby. */
+  | { t: 'rules'; rules: GameRules }
   | { t: 'start' }
   | { t: 'cmd'; cmd: Command }
   | { t: 'hash'; tick: number; hash: number };
 
 export type ServerMsg =
   | { t: 'joined'; code: string; slot: number; token: string }
-  | { t: 'lobby'; slots: SlotInfo[] }
+  | { t: 'lobby'; slots: SlotInfo[]; rules: GameRules }
   /** Sent when the match starts, and again on every rejoin. `tick` is the next tick the server will run. */
-  | { t: 'start'; seed: number; players: MatchPlayer[]; you: number; tick: number; log: TickBundle[] }
+  | { t: 'start'; seed: number; rules: GameRules; players: MatchPlayer[]; you: number; tick: number; log: TickBundle[] }
   | { t: 'tick'; tick: number; cmds: PlayerCommand[] }
   /** Per sim player: is a human connected (AIs are always true). */
   | { t: 'presence'; connected: boolean[] }
   | { t: 'desync'; tick: number }
   | { t: 'error'; msg: string };
+
+export const isSlotSetting = (v: unknown): v is SlotSetting => v === 'open' || v === 'ai' || v === 'closed';
 
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
 const isCoord = (v: unknown) => isInt(v) && v >= -1 && v < 4096;

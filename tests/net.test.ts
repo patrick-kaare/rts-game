@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createServer, type GameServer } from '../server/index';
 import type { Room } from '../server/room';
 import { NetTransport, type StartInfo } from '../src/net/net';
-import { HASH_INTERVAL, type SlotInfo } from '../src/net/protocol';
+import { HASH_INTERVAL, type SlotInfo, type SlotSetting } from '../src/net/protocol';
+import { DEFAULT_RULES, type GameRules } from '../src/sim/rules';
 import { applyCommand } from '../src/sim/commands';
 import { stateHash } from '../src/sim/hash';
 import { stepWorld } from '../src/sim/step';
@@ -15,20 +16,29 @@ class Client {
   world: World | null = null;
   info: StartInfo | null = null;
   lobby: SlotInfo[] = [];
+  rules: GameRules | null = null;
   errors: string[] = [];
   desyncs: number[] = [];
   presence: boolean[] = [];
 
   constructor(url: string) {
     this.net = new NetTransport(url);
-    this.net.onLobby = (s) => (this.lobby = s);
+    this.net.onLobby = (s, r) => {
+      this.lobby = s;
+      this.rules = r;
+    };
     this.net.onStart = (info) => {
       this.info = info;
-      this.world = createWorld(info.seed, info.players.length);
+      this.world = createWorld(info.seed, info.players.length, info.rules);
     };
     this.net.onError = (m) => this.errors.push(m);
     this.net.onDesync = (t) => this.desyncs.push(t);
     this.net.onPresence = (c) => (this.presence = c);
+  }
+
+  /** Host a new room. An empty slot setup gets the server's defaults (slot 1 AI, the rest open). */
+  create(name: string, rules: GameRules = DEFAULT_RULES, slots: SlotSetting[] = []) {
+    this.net.create(name, rules, slots);
   }
 
   /** Run every tick that has arrived. */
@@ -73,7 +83,7 @@ afterEach(async () => {
 /** Host + one joined human; slot 2 is an AI. Returns the started room. */
 async function startMatch() {
   const a = client();
-  a.net.create('Alice');
+  a.create('Alice');
   await until(() => a.net.slot === 0);
   a.net.setSlot(1, 'open');
   a.net.setSlot(2, 'ai');
@@ -98,7 +108,7 @@ async function runTicks(room: Room, n: number, ...cs: Client[]) {
 describe('game server', () => {
   it('only the host can change slots or start', async () => {
     const a = client();
-    a.net.create('Alice');
+    a.create('Alice');
     await until(() => a.net.slot === 0);
     const b = client();
     b.net.join(a.net.code, 'Bob');
@@ -175,6 +185,51 @@ describe('game server', () => {
     // And they stay in sync afterwards.
     await runTicks(room, 100, a, b2);
     expect(stateHash(b2.world!)).toBe(room.serverHash);
+  });
+
+  it('takes the setup from create and lets only the host change the rules', async () => {
+    const rules: GameRules = { credits: 10000, fog: 'off', mapSize: 'large', startUnits: 'army' };
+    const setup: SlotSetting[] = ['open', 'ai', ...Array<SlotSetting>(7).fill('closed')];
+    const a = client();
+    a.create('Alice', rules, setup);
+    await until(() => !!a.rules);
+    expect(a.rules).toEqual(rules);
+    expect(a.lobby.map((s) => s.kind)).toEqual(['human', 'open', 'ai', ...Array(7).fill('closed')]);
+
+    const b = client();
+    b.net.join(a.net.code, 'Bob');
+    await until(() => b.net.slot === 1 && !!b.rules);
+    b.net.setRules({ ...rules, credits: 1000 });
+    a.net.setRules({ ...rules, credits: 1234 });
+    a.net.setRules({ ...rules, fog: 'explored', extra: 'junk' } as GameRules);
+    await until(() => b.rules?.fog === 'explored');
+    expect(b.rules).toEqual({ ...rules, fog: 'explored' });
+
+    a.net.start();
+    await until(() => !!a.info && !!b.info);
+    expect(b.info!.rules).toEqual({ ...rules, fog: 'explored' });
+    expect(a.world!.players.every((p) => p.credits === 10000)).toBe(true);
+    const room = server.rooms.get(a.net.code)!;
+    await runTicks(room, 300, a, b);
+    expect(stateHash(a.world!)).toBe(room.serverHash);
+    expect(stateHash(b.world!)).toBe(room.serverHash);
+  });
+
+  it('falls back to defaults for a malformed setup', async () => {
+    const a = client();
+    a.net.create('Alice', { credits: 7 } as GameRules, ['human' as SlotSetting]);
+    await until(() => !!a.rules);
+    expect(a.rules).toEqual(DEFAULT_RULES);
+    expect(a.lobby[1].kind).toBe('ai');
+    expect(a.lobby[2].kind).toBe('open');
+  });
+
+  it('reports a server it cannot reach', async () => {
+    const c = new Client('ws://localhost:1/ws');
+    clients.push(c);
+    c.create('Nobody');
+    await until(() => c.errors.length > 0);
+    expect(c.errors[0]).toMatch(/reach/);
   });
 
   it('rejects a bad rejoin token', async () => {

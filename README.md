@@ -4,16 +4,18 @@ A small Command & Conquer–style RTS in the browser: grid map, base building, h
 
 ```
 npm install
-npm run dev      # http://localhost:5173  (add ?seed=123 to jump into an offline 1v1 on that map)
+npm run dev      # http://localhost:5173  (add ?seed=123 to jump into an offline 1v1 on that map with default rules)
 npm run server   # game server for online play, ws://localhost:8787/ws (proxied by the dev server at /ws)
 npm test         # simulation, map and network tests, including determinism checks
 npm run build
 ```
 
-## Playing online
-1. Run both `npm run dev` and `npm run server`.
-2. **Host online game**: you get a 4-letter code and an invite link. Set each slot to Open, AI or Closed, then press **Start** once people have joined. Open slots nobody joined are left out.
-3. Others use **Join** with the code, or open the invite link.
+## Starting a game
+**New game** opens a lobby with 10 slots and the match rules. Set each slot to AI, Closed or Open, then press **Start**.
+
+- **Rules**: starting credits, fog of war (fog, map revealed, or no fog), map size (Auto picks one from the player count; sizes too small for the players are bumped up) and starting units. The host's last choice is remembered.
+- As long as every slot is AI or Closed, the game runs entirely in the browser and no server is needed.
+- Setting a slot to **Open** moves the lobby to the game server (run both `npm run dev` and `npm run server`). You get a 4-letter code and an invite link; others use **Join** with the code or open the link. Open slots nobody joined are left out when the game starts.
 
 There are no accounts. Each browser keeps a rejoin token for its seat, so closing the tab and opening the link again puts you back in the match. While a player is away the match keeps going: their base sits idle and can be attacked, and when they return their client replays the match log to catch up. The server's clock only stops when no human is connected at all. Rooms are deleted after 30 minutes with nobody connected, or 5 minutes after the match ends.
 
@@ -36,6 +38,6 @@ src/ui/      start menu / lobby, HTML sidebar, minimap
 server/      Node WebSocket game server (rooms, lobby, tick clock)
 ```
 
-The simulation runs at a fixed 20 ticks/s and changes only through `applyCommand()` and `stepWorld()`. Positions are integers (1 tile = 256 units), randomness comes from a seeded PRNG stored in the world, and entities are always processed in id order. `stateHash()` fingerprints the state. Maps scale with the player count (64×64 for 2 players up to 160×160 for 7–10), with starts spread around a ring. With an even player count the map is point-symmetric.
+The simulation runs at a fixed 20 ticks/s and changes only through `applyCommand()` and `stepWorld()`. Positions are integers (1 tile = 256 units), randomness comes from a seeded PRNG stored in the world, and entities are always processed in id order. `stateHash()` fingerprints the state. By default maps scale with the player count (64×64 for 2 players up to 160×160 for 7–10), with starts spread around a ring. With an even player count the map is point-symmetric.
 
 **Multiplayer** is deterministic lockstep, with the server owning the clock. Every tick, the server sends all clients the commands received since the previous tick, stamped with the sender's player id. It sends this even when there are none. Clients run a tick once its bundle has arrived, so a slow or absent player never stalls anyone else. A client that falls behind (hidden tab, rejoin) fast-forwards. The server runs its own copy of the sim: it drives the AI players, decides the winner, and compares the `stateHash()` that clients report every 100 ticks to detect desyncs. Commands from the network are shape-checked before they reach the log.

@@ -342,7 +342,7 @@ body {
   text-decoration: line-through;
 }
 
-/* Start menu and online lobby. */
+/* Start menu and game lobby. */
 #lobby {
   position: fixed;
   inset: 0;
@@ -495,4 +495,15 @@ body {
 .slot.closed i,
 .slot.closed span {
   opacity: 0.35;
+}
+
+.rules {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 12px;
+  align-items: center;
+}
+
+.rules > span {
+  padding: 7px 0;
 }

@@ -1,14 +1,26 @@
 import { NetTransport, type StartInfo } from '../net/net';
-import type { SlotInfo, SlotSetting } from '../net/protocol';
+import type { MatchPlayer, SlotInfo, SlotSetting } from '../net/protocol';
 import { TEAM } from '../render/palette';
-import { MAX_PLAYERS } from '../sim/map';
+import { MAP_SIDES, MAX_PLAYERS, mapSideFor } from '../sim/map';
+import {
+  CREDIT_OPTIONS,
+  DEFAULT_RULES,
+  FOG_OPTIONS,
+  MAP_SIZE_OPTIONS,
+  START_UNITS_OPTIONS,
+  cleanRules,
+  isValidRules,
+  type GameRules,
+  type MapSizeRule,
+} from '../sim/rules';
 
 export interface LobbyHooks {
-  playLocal(seed: number, ais: number): void;
+  playLocal(seed: number, players: MatchPlayer[], rules: GameRules): void;
   playOnline(net: NetTransport, info: StartInfo): void;
 }
 
 const NAME_KEY = 'rts-name';
+const RULES_KEY = 'rts-rules';
 const tokenKey = (code: string) => `rts-token-${code}`;
 
 /** Web storage can throw (private mode, blocked storage); none of this is essential. */
@@ -42,6 +54,30 @@ function storage(kind: 'local' | 'session') {
 const store = storage('local');
 const session = storage('session');
 
+function loadRules(): GameRules {
+  try {
+    const r: unknown = JSON.parse(store.get(RULES_KEY) ?? 'null');
+    if (isValidRules(r)) return cleanRules(r);
+  } catch {
+    /* ignore */
+  }
+  return { ...DEFAULT_RULES };
+}
+
+const FOG_TEXT = { full: 'Fog of war', explored: 'Map revealed', off: 'No fog' };
+const START_UNITS_TEXT = { none: 'Construction yard only', squad: '2 riflemen', army: '4 riflemen, 2 tanks' };
+const MAP_SIZE_TEXT = { auto: 'Auto', small: 'Small', medium: 'Medium', large: 'Large', huge: 'Huge' };
+const SLOT_TEXT = { open: 'Open', ai: 'AI', closed: 'Closed' };
+
+/** Slots of a new offline game: you against one AI. */
+function localSlots(name: string): SlotInfo[] {
+  return Array.from({ length: MAX_PLAYERS }, (_, i) => ({
+    kind: i === 0 ? 'human' : i === 1 ? 'ai' : 'closed',
+    name: i === 0 ? name || 'You' : '',
+    connected: true,
+  }));
+}
+
 /**
  * Rejoin tokens live in sessionStorage (so two tabs in one browser keep
  * separate seats) and in localStorage (so closing the tab and opening the
@@ -70,11 +106,18 @@ function setRoomInUrl(code: string | null) {
   history.replaceState(null, '', url);
 }
 
-/** Start menu: offline skirmish, or host / join an online game and wait in its lobby. */
+/**
+ * Start menu and game lobby. A new game starts out in the browser; setting a
+ * slot to Open moves the lobby to the game server so others can join. Games
+ * with only AI opponents never need the server.
+ */
 export class Lobby {
   readonly el = document.createElement('div');
   private net: NetTransport | null = null;
   private slots: SlotInfo[] = [];
+  private rules: GameRules = loadRules();
+  /** The offline lobby while it is moving to the server, restored if that fails. */
+  private pendingLocal: SlotInfo[] | null = null;
 
   constructor(private hooks: LobbyHooks) {
     this.el.id = 'lobby';
@@ -95,14 +138,27 @@ export class Lobby {
     this.el.hidden = true;
   }
 
-  /** After an online game: forget the seat and show the menu. */
+  /** After an online game, or when backing out of a lobby: forget the seat and show the menu. */
   leave() {
     if (this.net?.code) tokens.remove(this.net.code);
     this.net?.close();
     this.net = null;
+    this.pendingLocal = null;
     setRoomInUrl(null);
     this.el.hidden = false;
     this.renderMenu('');
+  }
+
+  /** After an offline game: back to its lobby, same slots and rules. */
+  backToRoom() {
+    this.el.hidden = false;
+    // Started straight from ?seed=, without a lobby.
+    if (!this.slots.length) this.slots = localSlots(store.get(NAME_KEY) ?? '');
+    this.renderRoom();
+  }
+
+  private get online(): boolean {
+    return this.net !== null && this.pendingLocal === null;
   }
 
   private connect(): NetTransport {
@@ -110,11 +166,13 @@ export class Lobby {
     const net = new NetTransport(serverUrl());
     this.net = net;
     net.onJoined = (code, _slot, token) => {
+      this.pendingLocal = null;
       tokens.set(code, token);
       setRoomInUrl(code);
     };
-    net.onLobby = (slots) => {
+    net.onLobby = (slots, rules) => {
       this.slots = slots;
+      this.rules = rules;
       this.renderRoom();
     };
     net.onStart = (info) => {
@@ -128,7 +186,13 @@ export class Lobby {
       net.close();
       this.net = null;
       setRoomInUrl(null);
-      this.renderMenu(code, msg);
+      const local = this.pendingLocal;
+      this.pendingLocal = null;
+      if (local) {
+        // Couldn't move online: stay in the offline lobby.
+        this.slots = local;
+        this.renderRoom(msg);
+      } else this.renderMenu(code, msg);
     };
     net.onConnection = (lost) => {
       if (lost && !this.el.hidden) this.renderMessage('Connection lost — reconnecting…');
@@ -142,18 +206,13 @@ export class Lobby {
     name.maxLength = 20;
     name.addEventListener('change', () => store.set(NAME_KEY, name.value.trim()));
 
-    const ais = document.createElement('select');
-    for (let n = 1; n < MAX_PLAYERS; n++) ais.append(new Option(`${n} AI opponent${n > 1 ? 's' : ''}`, String(n)));
-    const playLocal = button('Play offline', () => {
-      this.hide();
-      this.hooks.playLocal((Math.random() * 2 ** 31) | 0, Number(ais.value));
+    const create = button('New game', () => {
+      store.set(NAME_KEY, name.value.trim());
+      this.net = null;
+      this.slots = localSlots(name.value.trim());
+      this.renderRoom();
     });
 
-    const host = button('Host online game', () => {
-      store.set(NAME_KEY, name.value.trim());
-      this.renderMessage('Creating game…');
-      this.connect().create(name.value);
-    });
     const codeIn = input('Code', code);
     codeIn.maxLength = 4;
     codeIn.className = 'code-input';
@@ -167,15 +226,7 @@ export class Lobby {
     });
     codeIn.addEventListener('keydown', (ev) => ev.key === 'Enter' && join.click());
 
-    box.append(
-      h('h1', 'Shape RTS'),
-      row(label('Name'), name),
-      h('h2', 'Skirmish'),
-      row(ais, playLocal),
-      h('h2', 'Online'),
-      row(host),
-      row(codeIn, join),
-    );
+    box.append(h('h1', 'Shape RTS'), row(label('Name'), name), row(create), h('h2', 'Join a game'), row(codeIn, join));
     if (error) box.append(p(error, 'error'));
     if (code) codeIn.focus();
   }
@@ -183,22 +234,26 @@ export class Lobby {
   private renderMessage(text: string) {
     const box = this.box();
     box.append(h('h1', 'Shape RTS'), p(text));
-    box.append(row(button('Cancel', () => this.leave(), 'secondary')));
+    box.append(row(button('Cancel', () => (this.pendingLocal ? this.stayLocal() : this.leave()), 'secondary')));
   }
 
-  private renderRoom() {
-    const net = this.net!;
-    const isHost = net.slot === 0;
+  /** The lobby of a new game, offline or on the server. */
+  private renderRoom(error = '') {
+    const net = this.online ? this.net : null;
+    const you = net ? net.slot : 0;
+    const isHost = you === 0;
     const box = this.box();
-    const link = new URL(location.href);
-    link.search = `?room=${net.code}`;
-    const copy = button('Copy invite link', () => {
-      navigator.clipboard?.writeText(link.href).then(
-        () => (copy.textContent = 'Copied!'),
-        () => (copy.textContent = link.href),
-      );
-    }, 'secondary');
-    box.append(h('h1', 'Game lobby'), row(label('Code'), h('span', net.code, 'room-code'), copy));
+    if (net) {
+      const link = new URL(location.href);
+      link.search = `?room=${net.code}`;
+      const copy = button('Copy invite link', () => {
+        navigator.clipboard?.writeText(link.href).then(
+          () => (copy.textContent = 'Copied!'),
+          () => (copy.textContent = link.href),
+        );
+      }, 'secondary');
+      box.append(h('h1', 'Game lobby'), row(label('Code'), h('span', net.code, 'room-code'), copy));
+    } else box.append(h('h1', 'New game'));
 
     const list = document.createElement('div');
     list.className = 'slots';
@@ -209,35 +264,131 @@ export class Lobby {
       swatch.style.background = TEAM[i].css;
       r.append(swatch);
       if (s.kind === 'human') {
-        const you = i === net.slot ? ' (you)' : '';
-        const host = i === 0 ? ' · host' : '';
-        r.append(h('span', `${s.name}${you}${host}${s.connected ? '' : ' · away'}`));
-        if (isHost && i !== 0) r.append(button('Remove', () => this.setSlot(i, 'open'), 'secondary small'));
+        const me = i === you ? ' (you)' : '';
+        const host = net && i === 0 ? ' · host' : '';
+        r.append(h('span', `${s.name}${me}${host}${s.connected ? '' : ' · away'}`));
+        if (net && isHost && i !== 0) r.append(button('Remove', () => this.setSlot(i, 'open'), 'secondary small'));
       } else if (isHost) {
         const sel = document.createElement('select');
-        for (const [v, t] of [['open', 'Open'], ['ai', 'AI'], ['closed', 'Closed']] as const) sel.append(new Option(t, v, false, s.kind === v));
+        for (const v of ['open', 'ai', 'closed'] as const) {
+          sel.append(new Option(!net && v === 'open' ? 'Open (invite online)' : SLOT_TEXT[v], v, false, s.kind === v));
+        }
         sel.addEventListener('change', () => this.setSlot(i, sel.value as SlotSetting));
         r.append(sel);
       } else {
-        r.append(h('span', s.kind === 'ai' ? 'AI' : s.kind === 'open' ? 'Open' : 'Closed'));
+        r.append(h('span', SLOT_TEXT[s.kind]));
       }
       list.append(r);
     });
     box.append(list);
 
+    box.append(h('h2', 'Rules'), this.rulesPanel(isHost));
+
     const count = this.slots.filter((s) => s.kind === 'human' || s.kind === 'ai').length;
     const actions = row();
     if (isHost) {
-      const start = button(`Start (${count} players)`, () => net.start());
+      const start = button(`Start (${count} players)`, () => this.start());
       start.disabled = count < 2;
       actions.append(start);
     } else actions.append(p('Waiting for the host to start…'));
     actions.append(button('Leave', () => this.leave(), 'secondary'));
-    box.append(actions, p('Open slots that nobody has joined are left out when the game starts.', 'hint'));
+    box.append(actions);
+    if (error) box.append(p(error, 'error'));
+    box.append(
+      p(
+        net
+          ? 'Open slots that nobody has joined are left out when the game starts.'
+          : 'Set a slot to Open to invite people: the game moves to the server and you get a code to share.',
+        'hint',
+      ),
+    );
+  }
+
+  private rulesPanel(editable: boolean): HTMLElement {
+    const rules = this.rules;
+    // Map sizes too small for the players that might take part are bumped up by the sim.
+    const players = this.slots.filter((s) => s.kind !== 'closed').length;
+    const sizeText = (v: MapSizeRule) => {
+      const side = mapSideFor(v, players);
+      return `${MAP_SIZE_TEXT[v]} (${side}×${side})`;
+    };
+    const fields: [string, string[], string, (v: string) => string, (v: string) => void, (v: string) => boolean][] = [
+      ['Credits', CREDIT_OPTIONS.map(String), String(rules.credits), (v) => Number(v).toLocaleString('en-US'), (v) => (rules.credits = Number(v)), () => false],
+      ['Fog', FOG_OPTIONS, rules.fog, (v) => FOG_TEXT[v as GameRules['fog']], (v) => (rules.fog = v as GameRules['fog']), () => false],
+      [
+        'Map',
+        MAP_SIZE_OPTIONS,
+        rules.mapSize,
+        (v) => sizeText(v as MapSizeRule),
+        (v) => (rules.mapSize = v as MapSizeRule),
+        (v) => v !== 'auto' && mapSideFor(v as MapSizeRule, players) !== MAP_SIDES[v as Exclude<MapSizeRule, 'auto'>],
+      ],
+      ['Units', START_UNITS_OPTIONS, rules.startUnits, (v) => START_UNITS_TEXT[v as GameRules['startUnits']], (v) => (rules.startUnits = v as GameRules['startUnits']), () => false],
+    ];
+    const grid = document.createElement('div');
+    grid.className = 'rules';
+    for (const [name, options, current, text, set, disabled] of fields) {
+      grid.append(label(name));
+      if (!editable) {
+        grid.append(h('span', text(current)));
+        continue;
+      }
+      const sel = document.createElement('select');
+      for (const v of options) {
+        const opt = new Option(text(v), v, false, v === current);
+        opt.disabled = disabled(v) && v !== current;
+        sel.append(opt);
+      }
+      sel.addEventListener('change', () => {
+        set(sel.value);
+        this.changeRules();
+      });
+      grid.append(sel);
+    }
+    return grid;
+  }
+
+  private changeRules() {
+    store.set(RULES_KEY, JSON.stringify(this.rules));
+    if (this.online) this.net!.setRules(this.rules);
+    else this.renderRoom();
   }
 
   private setSlot(i: number, kind: SlotSetting) {
-    this.net?.setSlot(i, kind);
+    if (this.online) return this.net!.setSlot(i, kind);
+    if (kind === 'open') return this.goOnline(i);
+    this.slots[i] = { kind, name: '', connected: true };
+    this.renderRoom();
+  }
+
+  /** Move the offline lobby to the server, with `open` as an open slot. */
+  private goOnline(open: number) {
+    const local = this.slots;
+    const setup = local.slice(1).map((s, k) => (k + 1 === open ? 'open' : s.kind === 'ai' ? 'ai' : 'closed'));
+    this.renderMessage('Creating online game…');
+    const net = this.connect();
+    this.pendingLocal = local;
+    net.create(local[0].name, this.rules, setup);
+  }
+
+  /** Give up moving online and go back to the offline lobby. */
+  private stayLocal() {
+    this.net?.close();
+    this.net = null;
+    this.slots = this.pendingLocal!;
+    this.pendingLocal = null;
+    this.renderRoom();
+  }
+
+  private start() {
+    if (this.online) return this.net!.start();
+    const players: MatchPlayer[] = [];
+    this.slots.forEach((s, i) => {
+      if (s.kind === 'human') players.push({ name: s.name, ai: false });
+      else if (s.kind === 'ai') players.push({ name: `AI ${i + 1}`, ai: true });
+    });
+    this.hide();
+    this.hooks.playLocal((Math.random() * 2 ** 31) | 0, players, { ...this.rules });
   }
 
   private box(): HTMLDivElement {
