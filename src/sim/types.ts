@@ -86,6 +86,8 @@ export interface Player {
   powerUsed: number;
   queues: Record<QueueKind, Queue>;
   defeated: boolean;
+  /** Players on the same team are allies. Players without a lobby team get a team of their own. */
+  team: number;
   /** Top-left tile of the starting construction yard. */
   startX: number;
   startY: number;

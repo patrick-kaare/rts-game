@@ -17,6 +17,15 @@ export const SLOT_COUNT = MAX_PLAYERS;
 /** How often clients report a state hash, in ticks. */
 export const HASH_INTERVAL = 100;
 
+/** Lobby teams; 0 means no team (free-for-all). */
+export const TEAM_OPTIONS = [0, 1, 2, 3, 4, 5];
+export const isTeam = (v: unknown): v is number => TEAM_OPTIONS.includes(v as number);
+
+/** Number of sides a set of lobby teams makes: each team counts once, each player without one counts alone. */
+export function sideCount(teams: number[]): number {
+  return new Set(teams.filter((t) => t > 0)).size + teams.filter((t) => t === 0).length;
+}
+
 /** What a lobby slot holds. 'human' slots are taken by a connected or disconnected person. */
 export type SlotKind = 'open' | 'ai' | 'closed' | 'human';
 /** What the host can set a free slot to. */
@@ -26,24 +35,31 @@ export interface SlotInfo {
   kind: SlotKind;
   name: string;
   connected: boolean;
+  team: number;
 }
 
 /** A participant in a running match; the array index is the sim player id. */
 export interface MatchPlayer {
   name: string;
   ai: boolean;
+  team: number;
 }
 
 /** Commands for one tick, as stored in a match log. Ticks with no commands are omitted. */
 export type TickBundle = [tick: number, cmds: PlayerCommand[]];
 
 export type ClientMsg =
-  /** `slots` is the setup of every slot after the host's own (slot 0), e.g. from an offline lobby. */
-  | { t: 'create'; name: string; rules: GameRules; slots: SlotSetting[] }
+  /**
+   * `slots` is the setup of every slot after the host's own (slot 0), e.g. from an offline lobby.
+   * `teams` is the team of every slot, the host's included.
+   */
+  | { t: 'create'; name: string; rules: GameRules; slots: SlotSetting[]; teams: number[] }
   | { t: 'join'; code: string; name: string }
   | { t: 'rejoin'; code: string; token: string }
   /** Host only. Setting a human's seat to 'open' removes them. */
   | { t: 'slot'; index: number; kind: SlotSetting }
+  /** In the lobby: the host can set any slot's team, others only their own. */
+  | { t: 'team'; index: number; team: number }
   /** Host only, in the lobby. */
   | { t: 'rules'; rules: GameRules }
   | { t: 'start' }

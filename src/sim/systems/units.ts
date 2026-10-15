@@ -1,5 +1,5 @@
 import { TILE, type Entity, type World } from '../types';
-import { unitDef } from '../world';
+import { areAllies, unitDef } from '../world';
 import { currentOrAcquire, engage } from './combat';
 import { updateHarvester } from './economy';
 import { followPath, isMoving, setPath } from './movement';
@@ -58,7 +58,7 @@ export function updateUnit(world: World, e: Entity): void {
     }
     case 'attack': {
       const t = world.entities.get(o.target);
-      if (!t || t.owner === e.owner || !engage(world, e, t, true)) {
+      if (!t || areAllies(world, t.owner, e.owner) || !engage(world, e, t, true)) {
         e.order = { t: 'idle' };
         e.targetId = 0;
       }

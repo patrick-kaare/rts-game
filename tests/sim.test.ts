@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { applyCommand } from '../src/sim/commands';
 import { stateHash } from '../src/sim/hash';
 import { findPath } from '../src/sim/pathfinding';
-import type { GameRules } from '../src/sim/rules';
+import { DEFAULT_RULES, type GameRules } from '../src/sim/rules';
 import { canPlace } from '../src/sim/systems/construction';
 import { stepWorld } from '../src/sim/step';
 import { TILE, Terrain, type Entity, type World } from '../src/sim/types';
@@ -173,6 +173,95 @@ describe('rules', () => {
     const a = createWorld(5, 2, { credits: 3000, fog: 'full', mapSize: 'auto', startUnits: 'squad' });
     const b = createWorld(5, 2, { credits: 3000, fog: 'off', mapSize: 'auto', startUnits: 'squad' });
     expect(stateHash(a)).not.toBe(stateHash(b));
+  });
+});
+
+/** Three players on open ground: 0 and 1 are allies, 2 is on their own. Player 2 keeps a yard so the game runs. */
+function teamWorld(): World {
+  const w = createWorld(1, 3, DEFAULT_RULES, [1, 1, 0]);
+  w.terrain.fill(Terrain.Grass);
+  w.blocked.fill(0);
+  w.ore.fill(0);
+  w.buildingAt.fill(0);
+  w.entities.clear();
+  addBuilding(w, 1, 'cy', 60, 0);
+  addBuilding(w, 2, 'cy', 60, 60);
+  return w;
+}
+
+describe('teams', () => {
+  it('allies never shoot each other, enemies still do', () => {
+    const w = teamWorld();
+    const a = addUnit(w, 0, 'tank', 20 * TILE, 20 * TILE);
+    const b = addUnit(w, 1, 'tank', 21 * TILE, 20 * TILE);
+    for (let i = 0; i < 60; i++) stepWorld(w);
+    expect(a.hp).toBe(a.maxHp);
+    expect(b.hp).toBe(b.maxHp);
+    const c = addUnit(w, 2, 'rifleman', 22 * TILE, 21 * TILE);
+    for (let i = 0; i < 60; i++) stepWorld(w);
+    expect(c.hp).toBeLessThan(c.maxHp);
+  });
+
+  it('ignores attack orders on allies', () => {
+    const w = teamWorld();
+    const a = addUnit(w, 0, 'tank', 20 * TILE, 20 * TILE);
+    const b = addUnit(w, 1, 'tank', 30 * TILE, 20 * TILE);
+    applyCommand(w, 0, { t: 'attack', ids: [a.id], target: b.id });
+    expect(a.order.t).toBe('idle');
+  });
+
+  it('shares vision with allies only', () => {
+    const w = teamWorld();
+    const u = addUnit(w, 1, 'rifleman', 30 * TILE + TILE / 2, 30 * TILE + TILE / 2);
+    stepWorld(w);
+    const i = tileOf(w, u.x, u.y);
+    expect(w.visible[0][i]).toBe(1);
+    expect(w.explored[0][i]).toBe(1);
+    expect(w.visible[2][i]).toBe(0);
+  });
+
+  it('lets allies build next to each other', () => {
+    const w = teamWorld();
+    addBuilding(w, 1, 'cy', 10, 10);
+    expect(canPlace(w, 0, 'power', 14, 10)).toBe(true);
+    expect(canPlace(w, 2, 'power', 14, 10)).toBe(false);
+  });
+
+  it('ends when one team is left', () => {
+    const w = teamWorld();
+    // Player 0 has no buildings and is out, but their ally plays on.
+    for (let i = 0; i < 20; i++) stepWorld(w);
+    expect(w.players[0].defeated).toBe(true);
+    expect(w.winner).toBe(-1);
+    for (const e of [...w.entities.values()]) if (e.owner === 2) w.entities.delete(e.id);
+    for (let i = 0; i < 20; i++) stepWorld(w);
+    expect(w.winner).toBe(1);
+  });
+
+  it('is part of the state hash', () => {
+    expect(stateHash(createWorld(5, 3, DEFAULT_RULES, [1, 1, 0]))).not.toBe(stateHash(createWorld(5, 3)));
+  });
+
+  const teamRules: GameRules = { credits: 10000, fog: 'full', mapSize: 'small', startUnits: 'army' };
+
+  it('a 2v2 AI match is deterministic', () => {
+    const a = aiMatch(4, 4, teamRules, [1, 1, 2, 2]);
+    const b = aiMatch(4, 4, teamRules, [1, 1, 2, 2]);
+    for (let i = 0; i < 2000; i++) {
+      a.step();
+      b.step();
+    }
+    expect(stateHash(a.world)).toBe(stateHash(b.world));
+  });
+
+  it('a 2v2 AI match ends with one team standing', () => {
+    const { world, step } = aiMatch(9, 4, teamRules, [1, 1, 2, 2]);
+    for (let i = 0; i < 12000 && world.winner < 0; i++) step();
+    expect(world.winner).toBeGreaterThanOrEqual(0);
+    expect(world.winner).toBeLessThan(4);
+    const team = world.players[world.winner].team;
+    // Everyone on the other team is out.
+    for (const p of world.players) if (p.team !== team) expect(p.defeated).toBe(true);
   });
 });
 

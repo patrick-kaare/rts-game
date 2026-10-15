@@ -158,17 +158,24 @@ export class Sidebar {
     this.minimap.draw();
   }
 
-  /** One row per player: colour, name, and whether they are still in it. */
+  /** One row per player, grouped by team: colour, name, and whether they are still in it. */
   private updatePlayers() {
     if (this.playerList.hidden) return;
     const { world, players, connected } = this.game;
     const me = this.game.state.localPlayer;
-    const html = world.players
-      .map((p, i) => {
+    // Players without a lobby team have a solo team above every lobby team, so they sort last.
+    const order = [...world.players].sort((a, b) => a.team - b.team || a.id - b.id);
+    let lastTeam = -1;
+    const html = order
+      .map((p) => {
+        const i = p.id;
         const info = players[i];
         const status = p.defeated ? 'out' : info?.ai ? 'AI' : connected[i] === false ? 'away' : '';
         const cls = ['player', p.defeated ? 'defeated' : '', i === me ? 'me' : ''].filter(Boolean).join(' ');
-        return `<div class="${cls}"><i style="background:${TEAM[i].css}"></i><span>${escapeHtml(info?.name ?? `Player ${i + 1}`)}</span><em>${status}</em></div>`;
+        const lobbyTeam = info?.team ?? 0;
+        const header = lobbyTeam && p.team !== lastTeam ? `<div class="team-header">Team ${lobbyTeam}${p.team === world.players[me].team ? ' (yours)' : ''}</div>` : '';
+        lastTeam = p.team;
+        return `${header}<div class="${cls}"><i style="background:${TEAM[i].css}"></i><span>${escapeHtml(info?.name ?? `Player ${i + 1}`)}</span><em>${status}</em></div>`;
       })
       .join('');
     if (this.playerList.innerHTML !== html) this.playerList.innerHTML = html;

@@ -1,6 +1,6 @@
 # Shape RTS
 
-A small Command & Conquer–style RTS in the browser: grid map, base building, harvesting, fog of war, and AI opponents. Up to 10 players, human or AI, free-for-all, offline or online. Everything is drawn with simple shapes.
+A small Command & Conquer–style RTS in the browser: grid map, base building, harvesting, fog of war, and AI opponents. Up to 10 players, human or AI, free-for-all or in teams, offline or online. Everything is drawn with simple shapes.
 
 ```
 npm install
@@ -14,6 +14,7 @@ npm run build
 **New game** opens a lobby with 10 slots and the match rules. Set each slot to AI, Closed or Open, then press **Start**.
 
 - **Rules**: starting credits, fog of war (fog, map revealed, or no fog), map size (Auto picks one from the player count; sizes too small for the players are bumped up) and starting units. The host's last choice is remembered.
+- **Teams**: each player or AI can be put on Team 1–5, or left with no team to play alone. The host can set every team; anyone else can change only their own. Teams are fixed once the match starts. Allies share vision, can't attack each other, and can build next to each other's buildings. A player is out once they have no buildings left, and the match ends when everyone still in it is on the same team. Start positions follow the slot order, so allies don't necessarily start next to each other.
 - As long as every slot is AI or Closed, the game runs entirely in the browser and no server is needed.
 - Setting a slot to **Open** moves the lobby to the game server (run both `npm run dev` and `npm run server`). You get a 4-letter code and an invite link; others use **Join** with the code or open the link. Open slots nobody joined are left out when the game starts.
 

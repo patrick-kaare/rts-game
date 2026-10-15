@@ -18,6 +18,7 @@ export function stateHash(world: World): number {
   mix(START_UNITS_OPTIONS.indexOf(world.rules.startUnits));
   for (const p of world.players) {
     mix(p.credits);
+    mix(p.team);
     for (const q of Object.values(p.queues)) {
       mix(q.items.length);
       mix(q.progress);

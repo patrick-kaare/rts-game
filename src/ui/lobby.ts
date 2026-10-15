@@ -1,5 +1,5 @@
 import { NetTransport, type StartInfo } from '../net/net';
-import type { MatchPlayer, SlotInfo, SlotSetting } from '../net/protocol';
+import { TEAM_OPTIONS, sideCount, type MatchPlayer, type SlotInfo, type SlotSetting } from '../net/protocol';
 import { TEAM } from '../render/palette';
 import { MAP_SIDES, MAX_PLAYERS, mapSideFor } from '../sim/map';
 import {
@@ -75,6 +75,7 @@ function localSlots(name: string): SlotInfo[] {
     kind: i === 0 ? 'human' : i === 1 ? 'ai' : 'closed',
     name: i === 0 ? name || 'You' : '',
     connected: true,
+    team: 0,
   }));
 }
 
@@ -278,21 +279,24 @@ export class Lobby {
       } else {
         r.append(h('span', SLOT_TEXT[s.kind]));
       }
+      if (s.kind === 'human' || s.kind === 'ai') r.append(this.teamPicker(i, s.team, isHost || i === you));
       list.append(r);
     });
     box.append(list);
 
     box.append(h('h2', 'Rules'), this.rulesPanel(isHost));
 
-    const count = this.slots.filter((s) => s.kind === 'human' || s.kind === 'ai').length;
+    const taken = this.slots.filter((s) => s.kind === 'human' || s.kind === 'ai');
+    const oneSide = taken.length >= 2 && sideCount(taken.map((s) => s.team)) < 2;
     const actions = row();
     if (isHost) {
-      const start = button(`Start (${count} players)`, () => this.start());
-      start.disabled = count < 2;
+      const start = button(`Start (${taken.length} players)`, () => this.start());
+      start.disabled = taken.length < 2 || oneSide;
       actions.append(start);
     } else actions.append(p('Waiting for the host to start…'));
     actions.append(button('Leave', () => this.leave(), 'secondary'));
     box.append(actions);
+    if (oneSide) box.append(p('Everyone is on the same team. Put someone on another team to start.', 'error'));
     if (error) box.append(p(error, 'error'));
     box.append(
       p(
@@ -302,6 +306,23 @@ export class Lobby {
         'hint',
       ),
     );
+  }
+
+  /** Team of a taken slot: "–" for no team (free-for-all), or Team 1–5. */
+  private teamPicker(i: number, team: number, editable: boolean): HTMLElement {
+    const text = (t: number) => (t ? `Team ${t}` : 'No team');
+    if (!editable) return h('span', text(team), 'team');
+    const sel = document.createElement('select');
+    sel.className = 'team';
+    for (const t of TEAM_OPTIONS) sel.append(new Option(text(t), String(t), false, t === team));
+    sel.addEventListener('change', () => this.setTeam(i, Number(sel.value)));
+    return sel;
+  }
+
+  private setTeam(i: number, team: number) {
+    if (this.online) return this.net!.setTeam(i, team);
+    this.slots[i] = { ...this.slots[i], team };
+    this.renderRoom();
   }
 
   private rulesPanel(editable: boolean): HTMLElement {
@@ -357,7 +378,7 @@ export class Lobby {
   private setSlot(i: number, kind: SlotSetting) {
     if (this.online) return this.net!.setSlot(i, kind);
     if (kind === 'open') return this.goOnline(i);
-    this.slots[i] = { kind, name: '', connected: true };
+    this.slots[i] = { kind, name: '', connected: true, team: this.slots[i].team };
     this.renderRoom();
   }
 
@@ -368,7 +389,7 @@ export class Lobby {
     this.renderMessage('Creating online game…');
     const net = this.connect();
     this.pendingLocal = local;
-    net.create(local[0].name, this.rules, setup);
+    net.create(local[0].name, this.rules, setup, local.map((s) => s.team));
   }
 
   /** Give up moving online and go back to the offline lobby. */
@@ -384,8 +405,8 @@ export class Lobby {
     if (this.online) return this.net!.start();
     const players: MatchPlayer[] = [];
     this.slots.forEach((s, i) => {
-      if (s.kind === 'human') players.push({ name: s.name, ai: false });
-      else if (s.kind === 'ai') players.push({ name: `AI ${i + 1}`, ai: true });
+      if (s.kind === 'human') players.push({ name: s.name, ai: false, team: s.team });
+      else if (s.kind === 'ai') players.push({ name: `AI ${i + 1}`, ai: true, team: s.team });
     });
     this.hide();
     this.hooks.playLocal((Math.random() * 2 ** 31) | 0, players, { ...this.rules });

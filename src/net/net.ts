@@ -39,8 +39,8 @@ export class NetTransport implements CommandTransport {
 
   constructor(private url: string) {}
 
-  create(name: string, rules: GameRules, slots: SlotSetting[]) {
-    this.open({ t: 'create', name, rules, slots });
+  create(name: string, rules: GameRules, slots: SlotSetting[], teams: number[]) {
+    this.open({ t: 'create', name, rules, slots, teams });
   }
 
   join(code: string, name: string) {
@@ -55,6 +55,10 @@ export class NetTransport implements CommandTransport {
 
   setSlot(index: number, kind: SlotSetting) {
     this.post({ t: 'slot', index, kind });
+  }
+
+  setTeam(index: number, team: number) {
+    this.post({ t: 'team', index, team });
   }
 
   setRules(rules: GameRules) {

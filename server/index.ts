@@ -56,7 +56,7 @@ export function createServer(port: number, opts: ServerOptions = {}): Promise<Ga
         if (room) return;
         let target: Room | undefined;
         if (msg.t === 'create') {
-          target = new Room(newCode(), randomInt(2 ** 31), opts.manualClock, msg.rules, msg.slots);
+          target = new Room(newCode(), randomInt(2 ** 31), opts.manualClock, msg.rules, msg.slots, msg.teams);
           rooms.set(target.code, target);
         } else {
           target = rooms.get(String(msg.code ?? '').toUpperCase());
@@ -78,6 +78,9 @@ export function createServer(port: number, opts: ServerOptions = {}): Promise<Ga
       switch (msg.t) {
         case 'slot':
           room.setSlot(slot, msg.index, msg.kind);
+          break;
+        case 'team':
+          room.setTeam(slot, msg.index, msg.team);
           break;
         case 'rules':
           room.setRules(slot, msg.rules);

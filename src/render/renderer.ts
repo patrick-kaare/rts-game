@@ -4,6 +4,7 @@ import type { Camera } from '../input/camera';
 import { BUILDINGS } from '../sim/data/buildings';
 import { canPlace, tileBuildable } from '../sim/systems/construction';
 import { TILE, Terrain, type Entity, type SimEvent, type World } from '../sim/types';
+import { areAllies } from '../sim/world';
 import { COLORS, TEAM, hpColor } from './palette';
 import { drawBuilding, drawHarvester, drawRifleman, drawTank } from './shapes';
 
@@ -147,10 +148,10 @@ export class Renderer {
       this.updateMemory();
     }
 
-    // Buildings: own ones live, enemy ones from memory (last seen state).
+    // Buildings: own and allied ones live, enemy ones from memory (last seen state).
     const b = this.buildings.clear();
     for (const e of world.entities.values()) {
-      if (e.kind !== 'building' || e.owner !== me) continue;
+      if (e.kind !== 'building' || !areAllies(world, e.owner, me)) continue;
       drawBuilding(b, e.type, e.tx * TILE_PX, e.ty * TILE_PX, e.w, e.h, TEAM[e.owner]);
     }
     for (const r of this.remembered.values()) {
@@ -210,7 +211,7 @@ export class Renderer {
     const world = this.world;
     const me = this.localPlayer;
     for (const e of world.entities.values()) {
-      if (e.kind === 'building' && e.owner !== me && this.buildingVisible(e)) {
+      if (e.kind === 'building' && !areAllies(world, e.owner, me) && this.buildingVisible(e)) {
         this.remembered.set(e.id, { id: e.id, owner: e.owner, type: e.type, tx: e.tx, ty: e.ty, w: e.w, h: e.h });
       }
     }

@@ -5,7 +5,7 @@ import { startHarvesting } from './systems/economy';
 import { clearPath, setPath } from './systems/movement';
 import { MAX_UNIT_QUEUE, canBuild, spawnUnit } from './systems/production';
 import { TILE, type Command, type Entity, type World } from './types';
-import { addBuilding, inBounds, unitDef } from './world';
+import { addBuilding, areAllies, inBounds, unitDef } from './world';
 
 /** The only way player input changes the simulation. Invalid commands are ignored. */
 export function applyCommand(world: World, playerId: number, cmd: Command): void {
@@ -28,7 +28,7 @@ export function applyCommand(world: World, playerId: number, cmd: Command): void
     }
     case 'attack': {
       const target = world.entities.get(cmd.target);
-      if (!target || target.owner === playerId) return;
+      if (!target || areAllies(world, target.owner, playerId)) return;
       for (const e of ownUnits(world, playerId, cmd.ids)) {
         if (!unitDef(e).weapon) continue;
         e.order = { t: 'attack', target: target.id };

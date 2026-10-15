@@ -13,7 +13,7 @@ import { stateHash } from './sim/hash';
 import type { GameRules } from './sim/rules';
 import { stepWorld } from './sim/step';
 import { TICK_MS, type Command, type World } from './sim/types';
-import { createWorld } from './sim/world';
+import { areAllies, createWorld } from './sim/world';
 import { Sidebar } from './ui/sidebar';
 
 const LOCAL_PLAYER = 0;
@@ -88,7 +88,7 @@ export class Game {
     this.transport = transport;
     this.players = players;
     this.connected = this.players.map(() => true);
-    this.begin(createWorld(seed, players.length, rules), LOCAL_PLAYER);
+    this.begin(createWorld(seed, players.length, rules, players.map((p) => p.team)), LOCAL_PLAYER);
     this.ais = this.players.flatMap((p, id) => (p.ai ? [new AIController(id, transport)] : []));
   }
 
@@ -107,7 +107,7 @@ export class Game {
     net.onMessage = () => {
       if (performance.now() - this.lastFrame > BACKGROUND_AFTER_MS) this.pump(BACKGROUND_BUDGET_MS);
     };
-    this.begin(createWorld(info.seed, info.players.length, info.rules), info.you);
+    this.begin(createWorld(info.seed, info.players.length, info.rules, info.players.map((p) => p.team)), info.you);
   }
 
   private begin(world: World, you: number) {
@@ -214,18 +214,30 @@ export class Game {
     if (!document.hidden && this.behind() < 4) this.renderer.handleEvents(world.events);
     if (world.winner >= 0 && !this.gameOver) {
       this.gameOver = true;
-      const won = world.winner === this.state.localPlayer;
-      const winner = this.players[world.winner];
-      const text = won ? 'Every enemy base has been destroyed.' : winner ? `${winner.name} wins.` : 'Nobody survived.';
-      this.showOverlay(won ? 'Victory' : 'Defeat', text, this.endButtons());
+      const me = this.state.localPlayer;
+      const draw = world.winner >= world.players.length;
+      const won = !draw && areAllies(world, world.winner, me);
+      this.showOverlay(won ? 'Victory' : 'Defeat', draw ? 'Nobody survived.' : this.winnerText(won), this.endButtons());
     } else if (world.winner < 0 && !this.shownDefeat && world.players[this.state.localPlayer].defeated) {
       // Knocked out while others play on: let the player watch or leave.
       this.shownDefeat = true;
-      this.showOverlay('Defeat', 'Your base has been destroyed. The others play on.', [
+      const me = this.state.localPlayer;
+      const alliesLeft = world.players.some((p) => p.id !== me && !p.defeated && areAllies(world, p.id, me));
+      const text = alliesLeft ? 'Your base has been destroyed. Your allies fight on.' : 'Your base has been destroyed. The others play on.';
+      this.showOverlay('Defeat', text, [
         { label: 'Keep watching', action: () => this.showOverlay(null, '') },
         ...this.endButtons(),
       ]);
     }
+  }
+
+  /** Who won: the winning player, or every member of the winning team. */
+  private winnerText(won: boolean): string {
+    const world = this.world;
+    const team = world.players.filter((p) => areAllies(world, p.id, world.winner));
+    if (team.length === 1) return won ? 'Every enemy base has been destroyed.' : `${this.players[world.winner]?.name ?? 'Someone'} wins.`;
+    const names = team.map((p) => this.players[p.id]?.name ?? `Player ${p.id + 1}`).join(', ');
+    return won ? `Your team wins: ${names}.` : `Team ${this.players[world.winner]?.team} wins: ${names}.`;
   }
 
   private updateStatus() {

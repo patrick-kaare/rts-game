@@ -20,9 +20,9 @@ export function updateFog(world: World): void {
   // Without fog, createWorld already made everything visible.
   if (world.rules.fog === 'off') return;
   for (const v of world.visible) v.fill(0);
+  // Allies share vision: everything a player sees is seen by the whole team.
+  const viewers = world.players.map((p) => world.players.filter((q) => q.team === p.team).map((q) => q.id));
   for (const e of world.entities.values()) {
-    const vis = world.visible[e.owner];
-    const exp = world.explored[e.owner];
     let cx: number;
     let cy: number;
     let r: number;
@@ -40,8 +40,10 @@ export function updateFog(world: World): void {
       const y = cy + dy;
       if (x < 0 || y < 0 || x >= w || y >= h) continue;
       const i = y * w + x;
-      vis[i] = 1;
-      exp[i] = 1;
+      for (const v of viewers[e.owner]) {
+        world.visible[v][i] = 1;
+        world.explored[v][i] = 1;
+      }
     }
   }
 }

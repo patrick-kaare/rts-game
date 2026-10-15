@@ -4,7 +4,7 @@ import { itemCost } from '../sim/data/items';
 import { canPlace } from '../sim/systems/construction';
 import { canBuild, isLowPower } from '../sim/systems/production';
 import { TILE, type BuildingType, type Entity, type World } from '../sim/types';
-import { countBuildings, unitDef } from '../sim/world';
+import { areAllies, countBuildings, unitDef } from '../sim/world';
 
 const BUILD_ORDER: BuildingType[] = ['power', 'refinery', 'barracks', 'power', 'factory', 'power', 'refinery', 'power', 'barracks'];
 
@@ -130,7 +130,7 @@ export class AIController {
     for (const e of world.entities.values()) if (e.owner === this.player && e.kind === 'building') buildings.push(e);
     const r2 = (TILE * 10) ** 2;
     for (const e of world.entities.values()) {
-      if (e.owner === this.player || e.kind !== 'unit') continue;
+      if (areAllies(world, e.owner, this.player) || e.kind !== 'unit') continue;
       for (const b of buildings) {
         if ((e.x - b.x) ** 2 + (e.y - b.y) ** 2 < r2) return e;
       }
@@ -148,7 +148,7 @@ export class AIController {
     let bestD = Infinity;
     const home = world.players[this.player];
     for (const e of world.entities.values()) {
-      if (e.owner === this.player || e.kind !== 'building') continue;
+      if (areAllies(world, e.owner, this.player) || e.kind !== 'building') continue;
       if (!explored[e.ty * world.w + e.tx]) continue;
       const d = (e.tx - home.startX) ** 2 + (e.ty - home.startY) ** 2;
       if (d < bestD) {
@@ -159,7 +159,7 @@ export class AIController {
     if (best) return best;
     // Otherwise head for the nearest enemy start that is still in the game.
     for (const p of world.players) {
-      if (p.id === this.player || p.defeated) continue;
+      if (areAllies(world, p.id, this.player) || p.defeated) continue;
       const d = (p.startX - home.startX) ** 2 + (p.startY - home.startY) ** 2;
       if (d < bestD) {
         bestD = d;

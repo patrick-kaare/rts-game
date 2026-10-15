@@ -6,8 +6,8 @@ import { stepWorld } from '../src/sim/step';
 import { createWorld } from '../src/sim/world';
 
 /** A headless match between AIs. */
-export function aiMatch(seed: number, players = 2, rules: GameRules = DEFAULT_RULES) {
-  const world = createWorld(seed, players, rules);
+export function aiMatch(seed: number, players = 2, rules: GameRules = DEFAULT_RULES, teams: number[] = []) {
+  const world = createWorld(seed, players, rules, teams);
   const transport = new LocalTransport();
   const ais = world.players.map((p) => new AIController(p.id, transport));
   const step = () => {

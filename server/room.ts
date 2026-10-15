@@ -7,6 +7,8 @@ import {
   SLOT_COUNT,
   cleanCommand,
   isSlotSetting,
+  isTeam,
+  sideCount,
   isValidCommand,
   type MatchPlayer,
   type ServerMsg,
@@ -29,6 +31,7 @@ interface Seat {
   name: string;
   token: string;
   socket: WebSocket | null;
+  team: number;
 }
 
 /**
@@ -64,14 +67,16 @@ export class Room {
     /** Initial setup from the host; anything malformed falls back to the defaults. */
     rules: unknown = DEFAULT_RULES,
     slots: unknown = [],
+    teams: unknown = [],
   ) {
     this.rules = isValidRules(rules) ? cleanRules(rules) : { ...DEFAULT_RULES };
     // Setups for slots 1 and up; slot 0 is the creator's.
     const setup = Array.isArray(slots) && slots.length === SLOT_COUNT - 1 && slots.every(isSlotSetting) ? slots : null;
     for (let i = 0; i < SLOT_COUNT; i++) {
       const kind = i === 0 ? 'open' : (setup?.[i - 1] ?? (i === 1 ? 'ai' : 'open'));
-      this.seats.push({ kind, name: '', token: '', socket: null });
+      this.seats.push({ kind, name: '', token: '', socket: null, team: 0 });
     }
+    if (Array.isArray(teams) && teams.length === SLOT_COUNT && teams.every(isTeam)) teams.forEach((t, i) => (this.seats[i].team = t));
   }
 
   /** Take the first open seat. Returns the seat index, or an error message. */
@@ -133,7 +138,17 @@ export class Room {
       if (kind !== 'open') return;
       seat.socket?.close(4001, 'Removed by the host.');
     }
-    this.seats[index] = { kind, name: '', token: '', socket: null };
+    this.seats[index] = { kind, name: '', token: '', socket: null, team: seat.team };
+    this.broadcastLobby();
+  }
+
+  /** Change a slot's team: the host may change any slot, everyone else only their own. */
+  setTeam(from: number, index: unknown, team: unknown) {
+    if (this.phase !== 'lobby' || !isTeam(team)) return;
+    if (typeof index !== 'number' || !Number.isInteger(index) || index < 0 || index >= SLOT_COUNT) return;
+    if (from !== 0 && from !== index) return;
+    if (this.seats[index].team === team) return;
+    this.seats[index].team = team;
     this.broadcastLobby();
   }
 
@@ -148,9 +163,10 @@ export class Room {
     if (from !== 0 || this.phase !== 'lobby') return null;
     const taken = this.seats.map((s, i) => [s, i] as const).filter(([s]) => s.kind === 'human' || s.kind === 'ai');
     if (taken.length < 2) return 'You need at least two players.';
+    if (sideCount(taken.map(([s]) => s.team)) < 2) return 'Everyone is on the same team.';
     this.players = taken.map(([, i]) => i);
-    this.matchPlayers = taken.map(([s, i]) => ({ name: s.kind === 'ai' ? `AI ${i + 1}` : s.name, ai: s.kind === 'ai' }));
-    this.world = createWorld(this.seed, this.players.length, this.rules);
+    this.matchPlayers = taken.map(([s, i]) => ({ name: s.kind === 'ai' ? `AI ${i + 1}` : s.name, ai: s.kind === 'ai', team: s.team }));
+    this.world = createWorld(this.seed, this.players.length, this.rules, this.matchPlayers.map((p) => p.team));
     const transport: CommandTransport = {
       send: (player, cmd) => this.pending.push({ player, cmd: structuredClone(cmd) }),
       take: () => [],
@@ -255,7 +271,7 @@ export class Room {
   }
 
   private broadcastLobby() {
-    const slots: SlotInfo[] = this.seats.map((s) => ({ kind: s.kind, name: s.name, connected: !!s.socket }));
+    const slots: SlotInfo[] = this.seats.map((s) => ({ kind: s.kind, name: s.name, connected: !!s.socket, team: s.team }));
     this.broadcast({ t: 'lobby', slots, rules: this.rules });
   }
 

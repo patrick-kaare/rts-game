@@ -1,6 +1,6 @@
 import { BUILD_GAP, BUILDINGS } from '../data/buildings';
 import { TILE, Terrain, type BuildingType, type World } from '../types';
-import { inBounds } from '../world';
+import { areAllies, inBounds } from '../world';
 
 /** Whether `owner` may place `type` with its top-left at (tx, ty). */
 export function canPlace(world: World, owner: number, type: BuildingType, tx: number, ty: number): boolean {
@@ -18,7 +18,7 @@ export function canPlace(world: World, owner: number, type: BuildingType, tx: nu
       const ux = Math.floor(e.x / TILE);
       const uy = Math.floor(e.y / TILE);
       if (ux >= tx && ux < tx + def.w && uy >= ty && uy < ty + def.h) return false;
-    } else if (e.owner === owner && !near) {
+    } else if (!near && areAllies(world, e.owner, owner)) {
       const gapX = Math.max(e.tx - (tx + def.w), tx - (e.tx + e.w), 0);
       const gapY = Math.max(e.ty - (ty + def.h), ty - (e.ty + e.h), 0);
       if (Math.max(gapX, gapY) <= BUILD_GAP) near = true;

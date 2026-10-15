@@ -29,7 +29,11 @@ const START_UNITS: Record<StartUnitsRule, [UnitType, number, number][]> = {
   ],
 };
 
-export function createWorld(seed: number, playerCount = 2, rules: GameRules = DEFAULT_RULES): World {
+/** Internal team for a player who picked none in the lobby, so nobody shares it. */
+const SOLO_TEAM = 100;
+
+/** `teams[i]` is player i's lobby team, 0 for none. */
+export function createWorld(seed: number, playerCount = 2, rules: GameRules = DEFAULT_RULES, teams: number[] = []): World {
   const map = generateMap(seed, playerCount, rules.mapSize);
   const n = map.w * map.h;
   const blocked = new Uint8Array(n);
@@ -69,6 +73,7 @@ export function createWorld(seed: number, playerCount = 2, rules: GameRules = DE
         vehicle: emptyQueue(),
       },
       defeated: false,
+      team: teams[p] ? teams[p] : SOLO_TEAM + p,
       startX: start.x,
       startY: start.y,
     };
@@ -217,6 +222,10 @@ export function countBuildings(world: World, owner: number, type: BuildingType):
   let n = 0;
   for (const e of world.entities.values()) if (e.owner === owner && e.type === type) n++;
   return n;
+}
+
+export function areAllies(world: World, a: number, b: number): boolean {
+  return world.players[a].team === world.players[b].team;
 }
 
 export function hasBuilding(world: World, owner: number, type: string): boolean {

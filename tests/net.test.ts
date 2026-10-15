@@ -29,7 +29,7 @@ class Client {
     };
     this.net.onStart = (info) => {
       this.info = info;
-      this.world = createWorld(info.seed, info.players.length, info.rules);
+      this.world = createWorld(info.seed, info.players.length, info.rules, info.players.map((p) => p.team));
     };
     this.net.onError = (m) => this.errors.push(m);
     this.net.onDesync = (t) => this.desyncs.push(t);
@@ -37,8 +37,8 @@ class Client {
   }
 
   /** Host a new room. An empty slot setup gets the server's defaults (slot 1 AI, the rest open). */
-  create(name: string, rules: GameRules = DEFAULT_RULES, slots: SlotSetting[] = []) {
-    this.net.create(name, rules, slots);
+  create(name: string, rules: GameRules = DEFAULT_RULES, slots: SlotSetting[] = [], teams: number[] = []) {
+    this.net.create(name, rules, slots, teams);
   }
 
   /** Run every tick that has arrived. */
@@ -217,11 +217,58 @@ describe('game server', () => {
 
   it('falls back to defaults for a malformed setup', async () => {
     const a = client();
-    a.net.create('Alice', { credits: 7 } as GameRules, ['human' as SlotSetting]);
+    a.net.create('Alice', { credits: 7 } as GameRules, ['human' as SlotSetting], [9]);
     await until(() => !!a.rules);
     expect(a.rules).toEqual(DEFAULT_RULES);
     expect(a.lobby[1].kind).toBe('ai');
     expect(a.lobby[2].kind).toBe('open');
+    expect(a.lobby.every((s) => s.team === 0)).toBe(true);
+  });
+
+  it('lets the host set any team and guests only their own', async () => {
+    const a = client();
+    // Slot 1 AI, slot 2 open; teams for every slot from the offline lobby.
+    a.create('Alice', DEFAULT_RULES, ['ai', 'open', 'closed', 'closed', 'closed', 'closed', 'closed', 'closed', 'closed'], [1, 2, 0, 0, 0, 0, 0, 0, 0, 0]);
+    await until(() => a.net.slot === 0 && a.lobby.length > 0);
+    expect(a.lobby.map((s) => s.team).slice(0, 3)).toEqual([1, 2, 0]);
+    const b = client();
+    b.net.join(a.net.code, 'Bob');
+    await until(() => a.lobby[2]?.kind === 'human');
+    b.net.setTeam(1, 1); // not Bob's slot
+    b.net.setTeam(2, 9); // not a team
+    b.net.setTeam(2, 2);
+    a.net.setTeam(1, 3);
+    await until(() => a.lobby[2].team === 2 && a.lobby[1].team === 3);
+    expect(a.lobby[1].team).toBe(3);
+
+    // Everyone on one side can't start.
+    a.net.setTeam(0, 1);
+    a.net.setTeam(1, 1);
+    a.net.setTeam(2, 1);
+    await until(() => a.lobby.slice(0, 3).every((s) => s.team === 1));
+    const room = server.rooms.get(a.net.code)!;
+    a.net.start();
+    await until(() => a.errors.length > 0);
+    expect(a.errors[0]).toMatch(/same team/);
+    expect(room.phase).toBe('lobby');
+  });
+
+  it('starts a team match that stays in sync', async () => {
+    const a = client();
+    a.create('Alice', DEFAULT_RULES, ['open', 'ai', 'ai', 'closed', 'closed', 'closed', 'closed', 'closed', 'closed'], [1, 1, 2, 2, 0, 0, 0, 0, 0, 0]);
+    await until(() => a.net.slot === 0);
+    const b = client();
+    b.net.join(a.net.code, 'Bob');
+    await until(() => a.lobby[1]?.kind === 'human');
+    a.net.start();
+    await until(() => !!a.info && !!b.info);
+    expect(b.info!.players.map((p) => p.team)).toEqual([1, 1, 2, 2]);
+    expect(b.world!.players[0].team).toBe(b.world!.players[1].team);
+    expect(b.world!.players[0].team).not.toBe(b.world!.players[2].team);
+    const room = server.rooms.get(a.net.code)!;
+    await runTicks(room, 300, a, b);
+    expect(stateHash(a.world!)).toBe(room.serverHash);
+    expect(stateHash(b.world!)).toBe(room.serverHash);
   });
 
   it('reports a server it cannot reach', async () => {

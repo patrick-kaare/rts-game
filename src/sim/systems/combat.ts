@@ -1,6 +1,6 @@
 import { DAMAGE_TABLE, type Weapon } from '../data/units';
 import { TILE, type Armor, type Entity, type World } from '../types';
-import { distSqToEntity, removeEntity, unitDef } from '../world';
+import { areAllies, distSqToEntity, removeEntity, unitDef } from '../world';
 import { aimAt, clearPath, followPath, isMoving, setPath } from './movement';
 
 export function armorOf(e: Entity): Armor {
@@ -28,7 +28,7 @@ export function acquireTarget(world: World, e: Entity, radius: number): Entity |
   let bestD = Infinity;
   const r2 = radius * radius;
   for (const t of world.entities.values()) {
-    if (t.owner === e.owner) continue;
+    if (areAllies(world, t.owner, e.owner)) continue;
     const d2 = distSqToEntity(e.x, e.y, t);
     if (d2 > r2) continue;
     const p = targetPriority(t);
@@ -44,7 +44,7 @@ export function acquireTarget(world: World, e: Entity, radius: number): Entity |
 /** Keep the current target while it is valid and within leash; rescan every few ticks. */
 export function currentOrAcquire(world: World, e: Entity, leash: number): Entity | null {
   const t = e.targetId ? world.entities.get(e.targetId) : undefined;
-  const cur = t && t.owner !== e.owner && distSqToEntity(e.x, e.y, t) <= leash * leash ? t : null;
+  const cur = t && !areAllies(world, t.owner, e.owner) && distSqToEntity(e.x, e.y, t) <= leash * leash ? t : null;
   const scan = (world.tick + e.id) % 4 === 0;
   // Keep fighting armed threats; periodically look for one if busy with something else.
   if (cur && (!scan || targetPriority(cur) === 0)) return cur;

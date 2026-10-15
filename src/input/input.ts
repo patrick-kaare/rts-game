@@ -5,7 +5,7 @@ import { BUILDINGS } from '../sim/data/buildings';
 import { PRODUCER } from '../sim/data/items';
 import { canPlace } from '../sim/systems/construction';
 import { TILE, type Entity } from '../sim/types';
-import { unitDef } from '../sim/world';
+import { areAllies, unitDef } from '../sim/world';
 
 const S = TILE_PX / TILE;
 const DRAG_THRESHOLD = 5;
@@ -262,7 +262,7 @@ export class Input {
     const ids = units.map((e) => e.id);
     const target = this.pick(p);
 
-    if (target && target.owner !== st.localPlayer) {
+    if (target && !areAllies(world, target.owner, st.localPlayer)) {
       this.game.send({ t: 'attack', ids, target: target.id });
       this.game.renderer.marker(tx, ty, 0xef4444);
       return;
@@ -303,7 +303,7 @@ export class Input {
     if (st.placing) cursor = 'cell';
     else if (this.selectedOwnUnits().length || this.selectedOwnProducers().length) {
       const t = this.pick(st.mouse);
-      if (t && t.owner !== st.localPlayer && this.selectedOwnUnits().length) cursor = 'crosshair';
+      if (t && !areAllies(this.game.world, t.owner, st.localPlayer) && this.selectedOwnUnits().length) cursor = 'crosshair';
       else cursor = 'pointer';
     }
     if (this.el.style.cursor !== cursor) this.el.style.cursor = cursor;
