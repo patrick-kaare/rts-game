@@ -33,6 +33,8 @@ export const COLORS = {
   bridge: 0x7a5a36,
   bridgePlank: 0x5a3f22,
   bridgeRail: 0x3a2814,
+  concrete: 0x8a8d91,
+  concreteEdge: 0x55585c,
   ore: 0xe0a82e,
   oreDark: 0x9a6b12,
   grid: 0x000000,

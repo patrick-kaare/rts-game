@@ -37,6 +37,13 @@ Buildings can go on grass and roads, but not in forest or on bridges. **Classic*
 - **Tank** (factory): main battle unit, strong against vehicles and buildings.
 - **Harvester** (factory, and one free with each refinery): gathers ore and brings it to a refinery.
 
+## Defenses
+- **Pillbox** (barracks): machine-gun bunker that shreds infantry, but does little to vehicles.
+- **Gun Turret** (barracks): cannon that outranges tanks and is strong against vehicles.
+- **Wall**: cheap concrete block that stops movement. Drag to lay a straight line of up to 8 segments: the build pays for the first one, and each extra one costs $25 on placement. Units never shoot walls on their own, only when ordered to, and walls don't keep you in the game.
+
+Pillboxes and turrets use power and **go offline at low power**. Defenses and walls don't extend the area you can build in; only regular buildings do.
+
 ## Controls
 - **LMB**: select / drag box (**Shift** adds; double-click selects all of that type on screen)
 - **RMB**: context command: move, attack an enemy, harvest ore (harvesters), dock at a refinery. While placing a building, RMB cancels placement. With a barracks or factory selected, RMB sets its rally point, where new units walk to (RMB on the building itself clears it).

@@ -205,6 +205,15 @@ export function buildingDef(e: Entity) {
   return BUILDINGS[e.type as BuildingType];
 }
 
+/** The unit's or defense building's weapon, null if unarmed. */
+export function weaponOf(e: Entity) {
+  return e.kind === 'building' ? buildingDef(e).weapon : unitDef(e).weapon;
+}
+
+export function isWall(e: Entity): boolean {
+  return e.kind === 'building' && buildingDef(e).category === 'wall';
+}
+
 export function isAlive(world: World, id: number): Entity | undefined {
   return id ? world.entities.get(id) : undefined;
 }

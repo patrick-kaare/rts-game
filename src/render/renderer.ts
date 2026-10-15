@@ -2,9 +2,10 @@ import { Application, Container, Graphics, Sprite, Texture } from 'pixi.js';
 import { TILE_PX, type ClientState } from '../client';
 import type { Camera } from '../input/camera';
 import { BUILDINGS } from '../sim/data/buildings';
-import { canPlace, tileBuildable } from '../sim/systems/construction';
+import { canPlace, tileBuildable, wallLine, wallLineTiles } from '../sim/systems/construction';
+import { isLowPower } from '../sim/systems/production';
 import { TILE, Terrain, type Entity, type SimEvent, type World } from '../sim/types';
-import { areAllies } from '../sim/world';
+import { areAllies, buildingDef } from '../sim/world';
 import { Effects } from './effects';
 import { COLORS, TEAM, hpColor } from './palette';
 import { drawBuilding, drawHarvester, drawJeep, drawRifleman, drawTank } from './shapes';
@@ -159,12 +160,12 @@ export class Renderer {
     const b = this.buildings.clear();
     for (const e of world.entities.values()) {
       if (e.kind !== 'building' || !areAllies(world, e.owner, me)) continue;
-      drawBuilding(b, e.type, e.tx * TILE_PX, e.ty * TILE_PX, e.w, e.h, TEAM[e.owner]);
+      drawBuilding(b, e.type, e.tx * TILE_PX, e.ty * TILE_PX, e.w, e.h, TEAM[e.owner], isOffline(world, e), aimOf(e));
     }
     for (const r of this.remembered.values()) {
       const live = world.entities.get(r.id);
       const seen = live && this.buildingVisible(live);
-      drawBuilding(b, r.type, r.tx * TILE_PX, r.ty * TILE_PX, r.w, r.h, TEAM[r.owner], !seen);
+      drawBuilding(b, r.type, r.tx * TILE_PX, r.ty * TILE_PX, r.w, r.h, TEAM[r.owner], !seen || isOffline(world, live), seen ? aimOf(live) : undefined);
     }
 
     this.fx.update(performance.now());
@@ -302,6 +303,10 @@ export class Renderer {
     if (!state.placing || !state.mouse.inside) return;
     const def = BUILDINGS[state.placing];
     const { tx, ty } = placementOrigin(state, camera, def.w, def.h);
+    if (state.wallStart) {
+      this.drawWallLine(state, state.wallStart.tx, state.wallStart.ty, tx, ty);
+      return;
+    }
     const ok = canPlace(this.world, state.localPlayer, state.placing, tx, ty);
     const g = this.overlay;
     for (let y = ty; y < ty + def.h; y++) {
@@ -314,6 +319,17 @@ export class Renderer {
       }
     }
     g.rect(tx * TILE_PX, ty * TILE_PX, def.w * TILE_PX, def.h * TILE_PX).stroke({ width: 2, color: ok ? COLORS.valid : COLORS.invalid });
+  }
+
+  /** Ghost for a wall line being dragged: segments that will be placed in green, the rest red. */
+  private drawWallLine(state: ClientState, x0: number, y0: number, x1: number, y1: number) {
+    const p = this.world.players[state.localPlayer];
+    const ok = wallLine(this.world, state.localPlayer, x0, y0, x1, y1, p.credits).length;
+    const g = this.overlay;
+    wallLineTiles(x0, y0, x1, y1).forEach(([x, y], k) => {
+      const color = k < ok ? COLORS.valid : COLORS.invalid;
+      g.rect(x * TILE_PX + 1, y * TILE_PX + 1, TILE_PX - 2, TILE_PX - 2).fill({ color, alpha: 0.4 }).stroke({ width: 1.5, color });
+    });
   }
 
   private drawScreenOverlay(state: ClientState) {
@@ -462,6 +478,16 @@ export class Renderer {
 }
 
 /** Top-left tile for a building footprint centred on the mouse. */
+/** Gun angle for defenses. */
+function aimOf(e: Entity): number {
+  return Math.atan2(e.ay, e.ax);
+}
+
+/** Defenses stop firing at low power; they are drawn dimmed then. */
+function isOffline(world: World, e: Entity): boolean {
+  return buildingDef(e).category === 'defense' && isLowPower(world.players[e.owner]);
+}
+
 export function placementOrigin(state: ClientState, camera: Camera, w: number, h: number) {
   const wx = state.mouse.x + camera.x;
   const wy = state.mouse.y + camera.y;

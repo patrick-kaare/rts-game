@@ -11,12 +11,11 @@ Ordered roughly by how much each would improve play compared to the work involve
 
 ## Economy and base building
 - **Sell and repair** buildings.
-- **Low power effects**: production slows and defenses switch off when power runs short.
+- **Low power effects**: more consequences when power runs short, beyond slower production and offline defenses.
 - **Silos or storage limits**, so harvesting more ore isn't automatically always better.
 - **Ore that grows back** or gem fields worth more, so the map changes over a match.
 
 ## Units and buildings
-- **Defensive structures**: a gun turret against vehicles, a pillbox against infantry and a wall.
 - **Rocket infantry**: a cheap counter to tanks (riflemen only do 25% damage to vehicles).
 - **Artillery**: long range, can't fire up close, strong against buildings.
 - **Engineer**: captures or repairs buildings.
@@ -44,4 +43,4 @@ Ordered roughly by how much each would improve play compared to the work involve
 - **Game speed setting** and pause for offline matches.
 
 ## Suggested first batch
-Control groups, rally points, defensive structures, rocket infantry and AI difficulty levels.
+Control groups, rally points, rocket infantry and AI difficulty levels.

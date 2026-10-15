@@ -168,15 +168,17 @@ export class Effects {
       const py = ev.ty * TILE_PX;
       const w = ev.w * TILE_PX;
       const h = ev.h * TILE_PX;
-      const n = 4 + Math.floor(Math.random() * 3);
+      // A wall segment just crumbles; real buildings go up in a chain of blasts.
+      const wall = ev.type === 'wall';
+      const n = wall ? 1 : 4 + Math.floor(Math.random() * 3);
       for (let k = 0; k < n; k++) {
         const delay = (k / n) * 600 + rand(0, 80);
         const ex = px + rand(0.15, 0.85) * w;
         const ey = py + rand(0.15, 0.85) * h;
-        this.fireball(ex, ey, rand(12, 18), delay);
+        this.fireball(ex, ey, wall ? rand(6, 9) : rand(12, 18), delay);
         this.sparks(ex, ey, 6, 200, delay);
       }
-      for (let k = 0; k < 10; k++) {
+      for (let k = 0; k < (wall ? 3 : 10); k++) {
         this.smokePuff(px + rand(0.1, 0.9) * w, py + rand(0.1, 0.9) * h, k % 2 ? COLORS.fx.dust : COLORS.fx.smokeDark, rand(10, 16), rand(1400, 2200), 500 + rand(0, 300));
       }
       this.decal({ kind: 'rubble', x: px, y: py, w, h, life: 10000, born: now });
@@ -290,7 +292,7 @@ export class Effects {
           g.rect(d.x + 3, d.y + 3, d.w - 6, d.h - 6).fill({ color: COLORS.fx.scorch, alpha: 0.6 * a });
           // Stable scattered blocks.
           let h = Math.imul((d.x * 31 + d.y) | 0, 2654435761) >>> 0;
-          for (let k = 0; k < 10; k++) {
+          for (let k = 0; k < (d.w * d.h > TILE_PX * TILE_PX ? 10 : 3); k++) {
             const bx = d.x + 6 + ((h & 255) / 255) * (d.w - 16);
             const by = d.y + 6 + (((h >> 8) & 255) / 255) * (d.h - 16);
             const s = 3 + ((h >> 16) & 7);

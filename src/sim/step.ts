@@ -1,9 +1,11 @@
 import { separateUnits } from './systems/movement';
+import { updateDefense } from './systems/combat';
 import { updateFog } from './systems/fog';
 import { updatePower, updateProduction } from './systems/production';
 import { updateUnit } from './systems/units';
 import { updateVictory } from './systems/victory';
 import type { World } from './types';
+import { buildingDef } from './world';
 
 /** Advance the simulation by exactly one tick. */
 export function stepWorld(world: World): void {
@@ -21,6 +23,7 @@ export function stepWorld(world: World): void {
   // Map iteration is insertion (= id) order, which keeps the sim deterministic.
   for (const e of world.entities.values()) {
     if (e.kind === 'unit') updateUnit(world, e);
+    else if (buildingDef(e).weapon) updateDefense(world, e);
   }
   separateUnits(world);
   updateFog(world);

@@ -13,6 +13,8 @@ export interface ClientState {
   /** Control groups: number key 1–9 → entity ids. */
   groups: Map<number, Set<number>>;
   placing: BuildingType | null;
+  /** Start tile of a wall line being dragged out. */
+  wallStart: { tx: number; ty: number } | null;
   /** Mouse position in viewport pixels. */
   mouse: { x: number; y: number; inside: boolean };
   /** Entity under the mouse, refreshed each frame. */
@@ -27,6 +29,7 @@ export function createClientState(localPlayer: number): ClientState {
     selection: new Set(),
     groups: new Map(),
     placing: null,
+    wallStart: null,
     mouse: { x: 0, y: 0, inside: false },
     hovered: null,
     drag: null,

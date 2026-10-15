@@ -136,7 +136,14 @@ export function isValidCommand(c: unknown): c is Command {
     case 'cancel':
       return typeof cmd.item === 'string' && (Object.hasOwn(UNITS, cmd.item) || Object.hasOwn(BUILDINGS, cmd.item));
     case 'place':
-      return typeof cmd.item === 'string' && Object.hasOwn(BUILDINGS, cmd.item) && isCoord(cmd.x) && isCoord(cmd.y);
+      return (
+        typeof cmd.item === 'string' &&
+        Object.hasOwn(BUILDINGS, cmd.item) &&
+        isCoord(cmd.x) &&
+        isCoord(cmd.y) &&
+        (cmd.x2 === undefined || isCoord(cmd.x2)) &&
+        (cmd.y2 === undefined || isCoord(cmd.y2))
+      );
     default:
       return false;
   }
@@ -160,6 +167,8 @@ export function cleanCommand(cmd: Command): Command {
     case 'cancel':
       return { t: cmd.t, item: cmd.item };
     case 'place':
-      return { t: 'place', item: cmd.item, x: cmd.x, y: cmd.y };
+      return cmd.x2 === undefined && cmd.y2 === undefined
+        ? { t: 'place', item: cmd.item, x: cmd.x, y: cmd.y }
+        : { t: 'place', item: cmd.item, x: cmd.x, y: cmd.y, x2: cmd.x2 ?? cmd.x, y2: cmd.y2 ?? cmd.y };
   }
 }

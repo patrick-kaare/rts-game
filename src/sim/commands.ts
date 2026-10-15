@@ -1,6 +1,7 @@
 import { PRODUCER, isBuildingType, queueKindOf } from './data/items';
 import { bfsFind } from './pathfinding';
-import { canPlace } from './systems/construction';
+import { BUILDINGS } from './data/buildings';
+import { canPlace, wallLine } from './systems/construction';
 import { startHarvesting } from './systems/economy';
 import { clearPath, setPath } from './systems/movement';
 import { MAX_UNIT_QUEUE, canBuild, spawnUnit } from './systems/production';
@@ -102,13 +103,21 @@ export function applyCommand(world: World, playerId: number, cmd: Command): void
     case 'place': {
       const q = p.queues.building;
       if (!q.ready || q.items[0] !== cmd.item || !isBuildingType(cmd.item)) return;
-      if (!canPlace(world, playerId, cmd.item, cmd.x, cmd.y)) return;
-      const b = addBuilding(world, playerId, cmd.item, cmd.x, cmd.y);
+      if (cmd.item === 'wall') {
+        // The queue paid for the first segment; each extra one is charged now.
+        const tiles = wallLine(world, playerId, cmd.x, cmd.y, cmd.x2 ?? cmd.x, cmd.y2 ?? cmd.y, p.credits);
+        if (tiles.length === 0) return;
+        p.credits -= (tiles.length - 1) * BUILDINGS.wall.cost;
+        for (const [x, y] of tiles) addBuilding(world, playerId, 'wall', x, y);
+      } else {
+        if (!canPlace(world, playerId, cmd.item, cmd.x, cmd.y)) return;
+        const b = addBuilding(world, playerId, cmd.item, cmd.x, cmd.y);
+        if (cmd.item === 'refinery') spawnUnit(world, playerId, 'harvester', b);
+      }
       q.items = [];
       q.ready = false;
       q.progress = 0;
       q.spent = 0;
-      if (cmd.item === 'refinery') spawnUnit(world, playerId, 'harvester', b);
       return;
     }
   }

@@ -3,7 +3,7 @@ import type { Game } from '../game';
 import { placementOrigin } from '../render/renderer';
 import { BUILDINGS } from '../sim/data/buildings';
 import { PRODUCER } from '../sim/data/items';
-import { canPlace } from '../sim/systems/construction';
+import { canPlace, wallLine } from '../sim/systems/construction';
 import { TILE, type Entity } from '../sim/types';
 import { areAllies, unitDef } from '../sim/world';
 
@@ -64,11 +64,19 @@ export class Input {
       return;
     }
     if (ev.button === 2) {
-      if (st.placing) st.placing = null;
+      if (st.placing) {
+        st.placing = null;
+        st.wallStart = null;
+      }
       else this.contextCommand(p);
       return;
     }
     if (ev.button !== 0) return;
+    if (st.placing === 'wall') {
+      // Walls are dragged out as a line and placed on release.
+      st.wallStart = placementOrigin(st, this.game.camera, 1, 1);
+      return;
+    }
     if (st.placing) {
       this.tryPlace();
       return;
@@ -90,6 +98,10 @@ export class Input {
   }
 
   private onUp(ev: MouseEvent) {
+    if (ev.button === 0 && this.state.wallStart) {
+      this.placeWall();
+      return;
+    }
     if (ev.button !== 0 || !this.dragStart || !this.state.drag) return;
     const d = this.state.drag;
     this.state.drag = null;
@@ -303,6 +315,18 @@ export class Input {
     const { tx, ty } = placementOrigin(st, this.game.camera, def.w, def.h);
     if (!canPlace(this.game.world, st.localPlayer, st.placing, tx, ty)) return;
     this.game.send({ t: 'place', item: st.placing, x: tx, y: ty });
+    st.placing = null;
+  }
+
+  private placeWall() {
+    const st = this.state;
+    const start = st.wallStart!;
+    st.wallStart = null;
+    if (st.placing !== 'wall') return;
+    const { tx, ty } = placementOrigin(st, this.game.camera, 1, 1);
+    const p = this.game.world.players[st.localPlayer];
+    if (wallLine(this.game.world, st.localPlayer, start.tx, start.ty, tx, ty, p.credits).length === 0) return;
+    this.game.send({ t: 'place', item: 'wall', x: start.tx, y: start.ty, x2: tx, y2: ty });
     st.placing = null;
   }
 

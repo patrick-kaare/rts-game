@@ -6,11 +6,11 @@ import { itemBuildTicks, itemCost } from '../src/sim/data/items';
 import { findPath } from '../src/sim/pathfinding';
 import { DEFAULT_RULES, type Difficulty, type GameRules } from '../src/sim/rules';
 import { acquireTarget } from '../src/sim/systems/combat';
-import { canPlace } from '../src/sim/systems/construction';
+import { canPlace, wallLine } from '../src/sim/systems/construction';
 import { updateFog } from '../src/sim/systems/fog';
 import { stepWorld } from '../src/sim/step';
 import { TILE, Terrain, type Entity, type World } from '../src/sim/types';
-import { addBuilding, addUnit, createWorld, tileOf } from '../src/sim/world';
+import { addBuilding, addUnit, createWorld, removeEntity, tileOf } from '../src/sim/world';
 import { aiMatch } from './helpers';
 
 function flatWorld(): World {
@@ -183,6 +183,128 @@ describe('jeep', () => {
   });
 });
 
+describe('defenses', () => {
+  /** Player 0 base at the left with spare power. */
+  function base(): World {
+    const w = flatWorld();
+    addBuilding(w, 0, 'cy', 5, 20);
+    addBuilding(w, 0, 'power', 9, 20);
+    return w;
+  }
+  const at = (t: number) => t * TILE + TILE / 2;
+
+  it('a pillbox kills approaching riflemen', () => {
+    const w = base();
+    const box = addBuilding(w, 0, 'pillbox', 12, 20);
+    const rifles = [0, 1, 2].map((k) => addUnit(w, 1, 'rifleman', at(30), at(19 + k)));
+    applyCommand(w, 1, { t: 'attackMove', ids: rifles.map((e) => e.id), x: 12, y: 20 });
+    for (let i = 0; i < 1200; i++) stepWorld(w);
+    expect(rifles.every((e) => !w.entities.has(e.id))).toBe(true);
+    expect(w.entities.has(box.id)).toBe(true);
+  });
+
+  it('a turret beats a lone tank that attacks it', () => {
+    const w = base();
+    const turret = addBuilding(w, 0, 'turret', 12, 20);
+    const tank = addUnit(w, 1, 'tank', at(30), at(20));
+    applyCommand(w, 1, { t: 'attack', ids: [tank.id], target: turret.id });
+    for (let i = 0; i < 1500; i++) stepWorld(w);
+    expect(w.entities.has(tank.id)).toBe(false);
+    expect(w.entities.has(turret.id)).toBe(true);
+  });
+
+  it('a turret prefers vehicles and a pillbox prefers infantry', () => {
+    const w = base();
+    const turret = addBuilding(w, 0, 'turret', 12, 18);
+    const box = addBuilding(w, 0, 'pillbox', 12, 22);
+    const rifle = addUnit(w, 1, 'rifleman', at(15), at(20));
+    const tank = addUnit(w, 1, 'tank', at(16), at(20));
+    updateFog(w);
+    stepWorld(w);
+    expect(turret.targetId).toBe(tank.id);
+    expect(box.targetId).toBe(rifle.id);
+  });
+
+  it('goes offline at low power and comes back when power returns', () => {
+    const w = base();
+    const plant = [...w.entities.values()].find((e) => e.type === 'power')!;
+    const turret = addBuilding(w, 0, 'turret', 12, 20);
+    removeEntity(w, plant);
+    const tank = addUnit(w, 1, 'tank', at(16), at(20));
+    for (let i = 0; i < 100; i++) stepWorld(w);
+    expect(tank.hp).toBe(tank.maxHp);
+    expect(turret.targetId).toBe(0);
+    addBuilding(w, 0, 'power', 9, 20);
+    for (let i = 0; i < 100; i++) stepWorld(w);
+    expect(tank.hp).toBeLessThan(tank.maxHp);
+  });
+
+  it('walls are not auto-targeted but can be attacked on order', () => {
+    const w = base();
+    const wall = addBuilding(w, 0, 'wall', 12, 20);
+    const tank = addUnit(w, 1, 'tank', at(15), at(20));
+    for (let i = 0; i < 100; i++) stepWorld(w);
+    // Idle in sight of the wall (and the base), it shoots the base, never the wall.
+    expect(wall.hp).toBe(wall.maxHp);
+    applyCommand(w, 1, { t: 'attack', ids: [tank.id], target: wall.id });
+    for (let i = 0; i < 100; i++) stepWorld(w);
+    expect(wall.hp).toBeLessThan(wall.maxHp);
+  });
+
+  it('walls and defenses do not extend the build area', () => {
+    const w = base();
+    addBuilding(w, 0, 'wall', 12, 20);
+    addBuilding(w, 0, 'turret', 15, 20);
+    expect(canPlace(w, 0, 'power', 17, 20)).toBe(false);
+    expect(canPlace(w, 0, 'power', 12, 22)).toBe(true);
+  });
+
+  it('a player with only walls left is defeated', () => {
+    const w = flatWorld();
+    addBuilding(w, 0, 'wall', 10, 10);
+    for (let i = 0; i < 10; i++) stepWorld(w);
+    expect(w.players[0].defeated).toBe(true);
+  });
+});
+
+describe('wall lines', () => {
+  function ready(w: World) {
+    w.players[0].queues.building = { items: ['wall'], progress: 4000, spent: 25, ready: true };
+  }
+  const walls = (w: World) => [...w.entities.values()].filter((e) => e.type === 'wall');
+
+  it('places a line and charges each extra segment', () => {
+    const w = flatWorld();
+    addBuilding(w, 0, 'cy', 5, 5);
+    w.players[0].credits = 1000;
+    ready(w);
+    applyCommand(w, 0, { t: 'place', item: 'wall', x: 8, y: 5, x2: 13, y2: 6 });
+    // Snapped to the row, 6 segments, 5 of them paid on placement.
+    expect(walls(w).map((e) => [e.tx, e.ty])).toEqual([5, 6, 7, 8, 9, 10].map((k) => [k + 3, 5]));
+    expect(w.players[0].credits).toBe(1000 - 5 * 25);
+    expect(w.players[0].queues.building.items).toEqual([]);
+  });
+
+  it('is capped, stops at obstacles and at the credit limit', () => {
+    const w = flatWorld();
+    addBuilding(w, 0, 'cy', 5, 5);
+    expect(wallLine(w, 0, 8, 5, 30, 5, 10000)).toHaveLength(8);
+    w.blocked[5 * w.w + 11] = 1;
+    expect(wallLine(w, 0, 8, 5, 30, 5, 10000)).toHaveLength(3);
+    expect(wallLine(w, 0, 8, 5, 30, 5, 50)).toHaveLength(3);
+    expect(wallLine(w, 0, 8, 5, 30, 5, 49)).toHaveLength(2);
+    // The first segment still has to be near the base.
+    expect(wallLine(w, 0, 30, 30, 35, 30, 10000)).toHaveLength(0);
+  });
+
+  it('accepts the line end in the protocol', () => {
+    expect(isValidCommand({ t: 'place', item: 'wall', x: 1, y: 2 })).toBe(true);
+    expect(isValidCommand({ t: 'place', item: 'wall', x: 1, y: 2, x2: 5, y2: 2 })).toBe(true);
+    expect(isValidCommand({ t: 'place', item: 'wall', x: 1, y: 2, x2: 'far', y2: 2 })).toBe(false);
+    expect(isValidCommand({ t: 'place', item: 'wall', x: 1, y: 2, x2: 99999, y2: 2 })).toBe(false);
+  });
+});
+
 describe('rules', () => {
   const units = (w: World, owner: number) => [...w.entities.values()].filter((e) => e.owner === owner && e.kind === 'unit').map((e) => e.type);
 
@@ -304,13 +426,14 @@ describe('teams', () => {
 
   it('a 2v2 AI match ends with one team standing', () => {
     const { world, step } = aiMatch(9, 4, teamRules, [1, 1, 2, 2]);
-    for (let i = 0; i < 12000 && world.winner < 0; i++) step();
+    // Defended bases take a while to break, so allow 20 minutes of game time.
+    for (let i = 0; i < 24000 && world.winner < 0; i++) step();
     expect(world.winner).toBeGreaterThanOrEqual(0);
     expect(world.winner).toBeLessThan(4);
     const team = world.players[world.winner].team;
     // Everyone on the other team is out.
     for (const p of world.players) if (p.team !== team) expect(p.defeated).toBe(true);
-  }, 20000);
+  }, 40000);
 });
 
 describe('difficulty', () => {
@@ -422,6 +545,7 @@ describe('AI match', () => {
     const all = [...world.entities.values()];
     expect(all.some((e) => e.type === 'refinery')).toBe(true);
     expect(all.some((e) => e.type === 'factory')).toBe(true);
+    expect(all.some((e) => e.type === 'pillbox' || e.type === 'turret')).toBe(true);
   });
 });
 

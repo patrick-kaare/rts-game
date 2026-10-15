@@ -77,12 +77,19 @@ export function drawWreck(g: Graphics, x: number, y: number, facing: number, typ
   }
 }
 
-/** Buildings: team-tinted body with a simple symbol per type. (x, y) is the top-left in pixels. */
-export function drawBuilding(g: Graphics, type: string, x: number, y: number, wTiles: number, hTiles: number, team: TeamColors, dim = false) {
+/**
+ * Buildings: team-tinted body with a simple symbol per type. (x, y) is the top-left in pixels.
+ * `aim` is the gun angle for defenses.
+ */
+export function drawBuilding(g: Graphics, type: string, x: number, y: number, wTiles: number, hTiles: number, team: TeamColors, dim = false, aim = Math.PI / 2) {
   const w = wTiles * TILE_PX;
   const h = hTiles * TILE_PX;
   const m = 2;
   const alpha = dim ? 0.55 : 1;
+  if (type === 'wall' || type === 'pillbox' || type === 'turret') {
+    drawDefense(g, type, x + w / 2, y + h / 2, team, alpha, aim);
+    return;
+  }
   g.rect(x + m, y + m, w - m * 2, h - m * 2).fill({ color: 0x2b2f36, alpha }).stroke({ width: 2, color: team.main, alpha });
   const cx = x + w / 2;
   const cy = y + h / 2;
@@ -122,4 +129,34 @@ export function drawBuilding(g: Graphics, type: string, x: number, y: number, wT
       break;
     }
   }
+}
+
+/** Walls, pillboxes and turrets: 1×1 concrete with no building plate. (cx, cy) is the tile centre. */
+function drawDefense(g: Graphics, type: string, cx: number, cy: number, team: TeamColors, alpha: number, aim: number) {
+  const half = TILE_PX / 2;
+  const c = Math.cos(aim);
+  const s = Math.sin(aim);
+  if (type === 'wall') {
+    g.rect(cx - half, cy - half, TILE_PX, TILE_PX).fill({ color: COLORS.concrete, alpha }).stroke({ width: 1, color: COLORS.concreteEdge, alpha });
+    g.rect(cx - half + 3, cy - half + 3, TILE_PX - 6, TILE_PX - 6).stroke({ width: 1, color: COLORS.concreteEdge, alpha: alpha * 0.6 });
+    g.rect(cx - 3, cy - 3, 6, 6).fill({ color: team.main, alpha });
+    return;
+  }
+  if (type === 'pillbox') {
+    const r = half - 2;
+    const pts: number[] = [];
+    for (let k = 0; k < 8; k++) pts.push(cx + Math.cos((k + 0.5) * (Math.PI / 4)) * r, cy + Math.sin((k + 0.5) * (Math.PI / 4)) * r);
+    g.poly(pts).fill({ color: COLORS.concrete, alpha }).stroke({ width: 2, color: team.main, alpha });
+    g.circle(cx, cy, r - 5).fill({ color: COLORS.concreteEdge, alpha });
+    // Firing slit and machine gun, both facing the target.
+    g.poly(rotated(cx, cy, aim, [r - 6, -4, r - 1, -5, r - 1, 5, r - 6, 4])).fill({ color: 0x111111, alpha });
+    g.moveTo(cx, cy).lineTo(cx + c * (r + 3), cy + s * (r + 3)).stroke({ width: 2, color: 0x111111, alpha });
+    g.circle(cx, cy, 3).fill({ color: team.main, alpha });
+    return;
+  }
+  // Gun turret: concrete base, team-coloured rotating head with a long barrel.
+  g.rect(cx - half + 2, cy - half + 2, TILE_PX - 4, TILE_PX - 4).fill({ color: COLORS.concrete, alpha }).stroke({ width: 1, color: COLORS.concreteEdge, alpha });
+  g.moveTo(cx, cy).lineTo(cx + c * 17, cy + s * 17).stroke({ width: 3.5, color: 0x1a1a1a, alpha });
+  g.circle(cx, cy, 8).fill({ color: team.dark, alpha }).stroke({ width: 2, color: team.main, alpha });
+  g.circle(cx - c * 3, cy - s * 3, 3).fill({ color: team.light, alpha });
 }

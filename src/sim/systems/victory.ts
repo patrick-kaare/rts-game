@@ -1,10 +1,11 @@
 import type { World } from '../types';
+import { isWall } from '../world';
 
-/** A player is out once they have no buildings left; the match ends when only one team is still in it. */
+/** A player is out once they have no buildings left (walls don't count); the match ends when only one team is still in it. */
 export function updateVictory(world: World): void {
   if (world.winner >= 0 || world.tick % 10 !== 0) return;
   const hasBuildings = new Set<number>();
-  for (const e of world.entities.values()) if (e.kind === 'building') hasBuildings.add(e.owner);
+  for (const e of world.entities.values()) if (e.kind === 'building' && !isWall(e)) hasBuildings.add(e.owner);
   for (const p of world.players) if (!hasBuildings.has(p.id)) p.defeated = true;
   const alive = world.players.filter((p) => !p.defeated);
   // `winner` is the first surviving player of the winning team, or players.length if nobody survived.

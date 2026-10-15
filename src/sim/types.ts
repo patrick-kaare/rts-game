@@ -5,7 +5,7 @@ export const TICK_RATE = 20;
 export const TICK_MS = 1000 / TICK_RATE;
 
 export type UnitType = 'rifleman' | 'jeep' | 'tank' | 'harvester';
-export type BuildingType = 'cy' | 'power' | 'refinery' | 'barracks' | 'factory';
+export type BuildingType = 'cy' | 'power' | 'refinery' | 'barracks' | 'factory' | 'wall' | 'pillbox' | 'turret';
 export type ItemType = UnitType | BuildingType;
 export type QueueKind = 'building' | 'infantry' | 'vehicle';
 export type Armor = 'infantry' | 'vehicle' | 'building';
@@ -104,7 +104,8 @@ export type Command =
   | { t: 'rally'; ids: number[]; x: number; y: number }
   | { t: 'build'; item: ItemType }
   | { t: 'cancel'; item: ItemType }
-  | { t: 'place'; item: BuildingType; x: number; y: number };
+  /** Walls may give an end tile (x2, y2) to place a straight line of segments. */
+  | { t: 'place'; item: BuildingType; x: number; y: number; x2?: number; y2?: number };
 
 export interface PlayerCommand {
   player: number;

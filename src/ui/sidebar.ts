@@ -1,7 +1,8 @@
 import type { Game } from '../game';
 import { TEAM } from '../render/palette';
+import { MAX_WALL_LINE } from '../sim/data/buildings';
 import { BUILD_MENU, isBuildingType, itemBuildTicks, itemCost, itemName, itemPrereq, itemProgressTotal, queueKindOf } from '../sim/data/items';
-import { canBuild } from '../sim/systems/production';
+import { canBuild, isLowPower } from '../sim/systems/production';
 import type { ItemType, QueueKind, World } from '../sim/types';
 import { buildingDef, unitDef } from '../sim/world';
 import { Minimap } from './minimap';
@@ -96,6 +97,7 @@ export class Sidebar {
     const status = span('status');
     el.append(progress, icon, name, cost, badge, status);
     el.title = `${itemName(item)} — $${itemCost(item)}, ${Math.round(itemBuildTicks(item) / 20)}s`;
+    if (item === 'wall') el.title += ` per segment. Drag to lay up to ${MAX_WALL_LINE} in a line.`;
     el.addEventListener('click', () => this.onClick(item));
     el.addEventListener('contextmenu', (ev) => {
       ev.preventDefault();
@@ -191,7 +193,8 @@ export class Sidebar {
     if (sel.length === 1) {
       const e = sel[0];
       const name = e.kind === 'building' ? buildingDef(e).name : unitDef(e).name;
-      const extra = e.type === 'harvester' ? ` · cargo ${e.cargo}` : '';
+      let extra = e.type === 'harvester' ? ` · cargo ${e.cargo}` : '';
+      if (e.kind === 'building' && buildingDef(e).category === 'defense' && isLowPower(world.players[e.owner])) extra = ' · offline (low power)';
       this.info.textContent = `${name} — ${e.hp}/${e.maxHp} HP${extra}`;
       return;
     }
@@ -209,7 +212,7 @@ function escapeHtml(s: string): string {
 }
 
 function shortName(type: string): string {
-  return type in { cy: 1, power: 1, refinery: 1, barracks: 1, factory: 1 } ? itemName(type as ItemType) : type;
+  return isBuildingType(type as ItemType) ? itemName(type as ItemType) : type;
 }
 
 function div(cls: string) {
@@ -239,6 +242,9 @@ function iconSvg(item: ItemType, color: string): string {
     refinery: `<rect x="2" y="7" width="32" height="22" fill="#2b2f36" stroke="${color}" stroke-width="2"/><circle cx="12" cy="17" r="7" fill="none" stroke="${color}" stroke-width="2"/><circle cx="12" cy="17" r="3" fill="#e0a82e"/><rect x="14" y="26" width="8" height="2" fill="#e0a82e"/>`,
     barracks: `<rect x="3" y="3" width="30" height="30" fill="#2b2f36" stroke="${color}" stroke-width="2"/><path d="M7 27 L18 8 L29 27 Z" fill="none" stroke="${color}" stroke-width="2"/>`,
     factory: `<rect x="2" y="2" width="32" height="32" fill="#2b2f36" stroke="${color}" stroke-width="2"/><rect x="8" y="17" width="20" height="13" fill="#111"/><path d="M9 20 H27 M9 24 H27 M9 28 H27" stroke="${color}" stroke-width="1.5"/>`,
+    wall: `<rect x="3" y="11" width="10" height="14" fill="#8a8d91" stroke="#55585c" stroke-width="1.5"/><rect x="13" y="11" width="10" height="14" fill="#8a8d91" stroke="#55585c" stroke-width="1.5"/><rect x="23" y="11" width="10" height="14" fill="#8a8d91" stroke="#55585c" stroke-width="1.5"/><rect x="16" y="16" width="4" height="4" fill="${color}"/>`,
+    pillbox: `<path d="M12 4 H24 L32 12 V24 L24 32 H12 L4 24 V12 Z" fill="#8a8d91" stroke="${color}" stroke-width="2"/><circle cx="18" cy="18" r="8" fill="#55585c"/><line x1="18" y1="18" x2="33" y2="18" stroke="#111" stroke-width="2.5"/><circle cx="18" cy="18" r="3" fill="${color}"/>`,
+    turret: `<rect x="3" y="3" width="30" height="30" fill="#8a8d91" stroke="#55585c" stroke-width="1.5"/><line x1="18" y1="18" x2="35" y2="18" stroke="#111" stroke-width="4"/><circle cx="18" cy="18" r="9" fill="#1f2937" stroke="${color}" stroke-width="2"/>`,
     rifleman: `<line x1="18" y1="18" x2="30" y2="10" stroke="#111" stroke-width="3"/><circle cx="18" cy="18" r="8" fill="${color}" stroke="#111" stroke-width="2"/>`,
     jeep: `<rect x="8" y="6" width="7" height="4" fill="#222"/><rect x="21" y="6" width="7" height="4" fill="#222"/><rect x="8" y="26" width="7" height="4" fill="#222"/><rect x="21" y="26" width="7" height="4" fill="#222"/><path d="M5 9 H27 L31 13 V23 L27 27 H5 Z" fill="#1f2937" stroke="${color}" stroke-width="2"/><rect x="22" y="11" width="3" height="14" fill="#9fb4c7"/><line x1="14" y1="18" x2="30" y2="18" stroke="#111" stroke-width="2"/><circle cx="14" cy="18" r="4" fill="${color}"/>`,
     tank: `<rect x="4" y="9" width="28" height="18" fill="#1f2937" stroke="${color}" stroke-width="2"/><line x1="18" y1="18" x2="34" y2="18" stroke="#111" stroke-width="4"/><circle cx="18" cy="18" r="6" fill="${color}"/>`,

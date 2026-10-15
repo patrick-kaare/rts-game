@@ -4,9 +4,12 @@ import { itemCost } from '../sim/data/items';
 import { canPlace } from '../sim/systems/construction';
 import { canBuild, isLowPower } from '../sim/systems/production';
 import { TILE, type BuildingType, type Entity, type World } from '../sim/types';
-import { areAllies, countBuildings, unitDef } from '../sim/world';
+import { areAllies, countBuildings, isWall, unitDef } from '../sim/world';
 
-const BUILD_ORDER: BuildingType[] = ['power', 'refinery', 'barracks', 'power', 'factory', 'power', 'refinery', 'power', 'barracks'];
+const BUILD_ORDER: BuildingType[] = ['power', 'refinery', 'barracks', 'power', 'factory', 'pillbox', 'turret', 'power', 'refinery', 'power', 'barracks'];
+
+/** Ticks past the wave time after which the AI attacks with whatever it has. */
+const WAVE_PATIENCE = 1800;
 
 /**
  * A simple scripted opponent. It only reads the world and issues commands
@@ -112,7 +115,9 @@ export class AIController {
       return;
     }
 
-    if (home.length >= this.waveSize && world.tick >= this.nextWaveTick) {
+    // Don't wait forever for a full wave: once the economy stalls the army may never grow.
+    const impatient = world.tick >= this.nextWaveTick + WAVE_PATIENCE && home.length >= 3;
+    if ((home.length >= this.waveSize || impatient) && world.tick >= this.nextWaveTick) {
       const target = this.enemyTarget(world);
       if (!target) return;
       this.send({ t: 'attackMove', ids: home.map((e) => e.id), x: target.x, y: target.y });
@@ -154,7 +159,7 @@ export class AIController {
     let bestD = Infinity;
     const home = world.players[this.player];
     for (const e of world.entities.values()) {
-      if (areAllies(world, e.owner, this.player) || e.kind !== 'building') continue;
+      if (areAllies(world, e.owner, this.player) || e.kind !== 'building' || isWall(e)) continue;
       if (!explored[e.ty * world.w + e.tx]) continue;
       const d = (e.tx - home.startX) ** 2 + (e.ty - home.startY) ** 2;
       if (d < bestD) {
@@ -162,8 +167,14 @@ export class AIController {
         best = { x: e.tx + 1, y: e.ty + 1 };
       }
     }
-    if (best) return best;
-    // Otherwise head for the nearest enemy start that is still in the game.
+    return best ?? this.nearestEnemyStart(world);
+  }
+
+  /** Centre of the nearest enemy construction yard start that is still in the game. */
+  private nearestEnemyStart(world: World): { x: number; y: number } | null {
+    const home = world.players[this.player];
+    let best: { x: number; y: number } | null = null;
+    let bestD = Infinity;
     for (const p of world.players) {
       if (areAllies(world, p.id, this.player) || p.defeated) continue;
       const d = (p.startX - home.startX) ** 2 + (p.startY - home.startY) ** 2;
@@ -181,6 +192,8 @@ export class AIController {
     const me = world.players[this.player];
     const ox = me.startX + 1;
     const oy = me.startY + 1;
+    const defense = def.category === 'defense';
+    const front = defense ? this.nearestEnemyStart(world) : null;
     let best: { x: number; y: number } | null = null;
     let bestScore = Infinity;
     for (let r = 2; r <= 12; r++) {
@@ -192,13 +205,15 @@ export class AIController {
           if (!canPlace(world, this.player, type, x, y) || !this.hasLane(world, x, y, def.w, def.h)) continue;
           let score = r * 10;
           if (type === 'refinery') score = this.oreDistance(world, x + 1, y + 1);
+          // Defenses go on the side facing the enemy.
+          else if (front) score = (x - front.x) ** 2 + (y - front.y) ** 2;
           if (score < bestScore) {
             bestScore = score;
             best = { x, y };
           }
         }
       }
-      if (best && type !== 'refinery') return best;
+      if (best && type !== 'refinery' && !defense) return best;
     }
     return best;
   }
