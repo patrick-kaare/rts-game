@@ -17,6 +17,7 @@ export class Input {
   readonly keys = new Set<string>();
   private dragStart: { x: number; y: number } | null = null;
   private lastClick = { time: 0, id: 0 };
+  private lastRecall = { time: 0, n: 0 };
 
   constructor(
     private el: HTMLElement,
@@ -100,12 +101,60 @@ export class Input {
     }
   }
 
-  /** The only keyboard input is scrolling (arrows / WASD); see Camera.update. */
+  /**
+   * Scrolling (arrows / WASD, see Camera.update) and control groups:
+   * Ctrl or Shift + 1–9 saves the selection (browsers may keep Ctrl+digit for
+   * tab switching, hence Shift), 1–9 recalls it, pressing it twice centers the view.
+   */
   private onKey(ev: KeyboardEvent) {
     if (ev.target instanceof HTMLInputElement || ev.target instanceof HTMLSelectElement || !this.game.world) return;
+    const digit = /^Digit([1-9])$/.exec(ev.code);
+    if (digit) {
+      if (ev.altKey || ev.metaKey) return;
+      ev.preventDefault();
+      if (ev.repeat) return;
+      const n = Number(digit[1]);
+      if (ev.ctrlKey || ev.shiftKey) this.saveGroup(n);
+      else this.recallGroup(n);
+      return;
+    }
     if (!SCROLL_KEYS.has(ev.code)) return;
     ev.preventDefault();
     this.keys.add(ev.code);
+  }
+
+  private saveGroup(n: number) {
+    const st = this.state;
+    const ents = this.game.world.entities;
+    const ids = [...st.selection].filter((id) => ents.get(id)?.owner === st.localPlayer);
+    if (ids.length) st.groups.set(n, new Set(ids));
+    else st.groups.delete(n);
+  }
+
+  private recallGroup(n: number) {
+    const st = this.state;
+    const group = st.groups.get(n);
+    if (!group?.size) return;
+    st.selection.clear();
+    for (const id of group) st.selection.add(id);
+    const now = performance.now();
+    if (this.lastRecall.n === n && now - this.lastRecall.time < 350) {
+      // Double-tap: center the view on the group.
+      let x = 0;
+      let y = 0;
+      let count = 0;
+      for (const id of group) {
+        const e = this.game.world.entities.get(id);
+        if (!e) continue;
+        x += e.x;
+        y += e.y;
+        count++;
+      }
+      if (count) this.game.camera.centerOn((x / count) * S, (y / count) * S);
+      this.lastRecall = { time: 0, n: 0 };
+      return;
+    }
+    this.lastRecall = { time: now, n };
   }
 
   selectedOwnUnits(): Entity[] {
@@ -240,9 +289,13 @@ export class Input {
     if (this.el.style.cursor !== cursor) this.el.style.cursor = cursor;
   }
 
-  /** Remove dead entities from the selection. */
+  /** Remove dead entities from the selection and control groups. */
   prune() {
     const ents = this.game.world.entities;
     for (const id of this.state.selection) if (!ents.has(id)) this.state.selection.delete(id);
+    for (const [n, group] of this.state.groups) {
+      for (const id of group) if (!ents.has(id)) group.delete(id);
+      if (!group.size) this.state.groups.delete(n);
+    }
   }
 }

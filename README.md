@@ -20,7 +20,8 @@ There are no accounts. Each browser keeps a rejoin token for its seat, so closin
 ## Controls
 - **LMB**: select / drag box (**Shift** adds; double-click selects all of that type on screen)
 - **RMB**: context command: move, attack an enemy, harvest ore (harvesters), dock at a refinery. While placing a building, RMB cancels placement.
-- **WASD** or **arrows**: scroll · click or drag the minimap to jump. There is no edge or middle-drag scrolling, and no other keyboard shortcuts.
+- **WASD** or **arrows**: scroll · click or drag the minimap to jump. There is no edge or middle-drag scrolling.
+- **Shift+1–9** or **Ctrl+1–9**: save the selection as a control group (some browsers keep Ctrl+digit for switching tabs, so Shift always works) · **1–9**: select that group, press twice to center the view on it
 - Sidebar: click to build; a finished structure shows READY, then click it again to place it. Right-click an item to cancel it (refunds what you've spent).
 
 ## Architecture

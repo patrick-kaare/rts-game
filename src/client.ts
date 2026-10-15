@@ -10,6 +10,8 @@ export const TILE_PX = 32;
 export interface ClientState {
   localPlayer: number;
   selection: Set<number>;
+  /** Control groups: number key 1–9 → entity ids. */
+  groups: Map<number, Set<number>>;
   placing: BuildingType | null;
   /** Mouse position in viewport pixels. */
   mouse: { x: number; y: number; inside: boolean };
@@ -21,6 +23,7 @@ export function createClientState(localPlayer: number): ClientState {
   return {
     localPlayer,
     selection: new Set(),
+    groups: new Map(),
     placing: null,
     mouse: { x: 0, y: 0, inside: false },
     drag: null,
