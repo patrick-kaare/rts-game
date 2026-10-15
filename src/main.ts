@@ -34,8 +34,8 @@ async function main() {
     game.startLocal(
       seed,
       [
-        { name: 'You', ai: false, team: 0 },
-        { name: 'AI 2', ai: true, team: 0 },
+        { name: 'You', ai: false, team: 0, difficulty: 'normal' },
+        { name: 'AI 2', ai: true, team: 0, difficulty: 'normal' },
       ],
       DEFAULT_RULES,
     );

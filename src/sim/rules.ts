@@ -15,6 +15,20 @@ export const FOG_OPTIONS: FogRule[] = ['full', 'explored', 'off'];
 export const MAP_SIZE_OPTIONS: MapSizeRule[] = ['auto', 'small', 'medium', 'large', 'huge'];
 export const START_UNITS_OPTIONS: StartUnitsRule[] = ['none', 'squad', 'army'];
 
+/** Per player, set in the lobby for AI slots. Humans always play Normal. */
+export type Difficulty = 'easy' | 'normal' | 'hard';
+export const DIFFICULTY_OPTIONS: Difficulty[] = ['easy', 'normal', 'hard'];
+export const isDifficulty = (v: unknown): v is Difficulty => DIFFICULTY_OPTIONS.includes(v as Difficulty);
+/**
+ * Build speed and harvest income in percent. Income values are multiples of 4
+ * so every unload step (25 credits) stays a whole number.
+ */
+export const DIFFICULTY: Record<Difficulty, { build: number; income: number }> = {
+  easy: { build: 75, income: 80 },
+  normal: { build: 100, income: 100 },
+  hard: { build: 150, income: 140 },
+};
+
 export const DEFAULT_RULES: GameRules = { credits: 3000, fog: 'full', mapSize: 'auto', startUnits: 'squad' };
 
 /** Strict shape check for rules from the network or storage. */

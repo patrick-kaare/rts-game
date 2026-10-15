@@ -1,5 +1,6 @@
 import { HARVEST_RATE, HARVESTER_CAPACITY, UNLOAD_RATE } from '../data/units';
 import { bfsFind } from '../pathfinding';
+import { DIFFICULTY } from '../rules';
 import { TILE, type Entity, type Order, type World } from '../types';
 import { distSqToEntity, tileOf } from '../world';
 import { clearPath, followPath, isMoving, setPath } from './movement';
@@ -87,7 +88,8 @@ export function updateHarvester(world: World, e: Entity): void {
       }
       const amount = Math.min(UNLOAD_RATE, e.cargo);
       e.cargo -= amount;
-      world.players[e.owner].credits += amount;
+      const p = world.players[e.owner];
+      p.credits += Math.floor((amount * DIFFICULTY[p.difficulty].income) / 100);
       if (e.cargo === 0) o.state = 'seek';
       return;
     }

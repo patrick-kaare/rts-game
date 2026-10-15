@@ -521,12 +521,14 @@ body {
 }
 
 /* Sized to its longest option, so the slot's own dropdown takes the rest. */
-.slot .team {
+.slot .team,
+.slot .difficulty {
   flex: none;
   width: auto;
 }
 
-.slot span.team {
+.slot span.team,
+.slot span.difficulty {
   color: var(--muted);
 }
 

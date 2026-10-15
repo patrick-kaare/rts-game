@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand } from '../src/sim/commands';
 import { stateHash } from '../src/sim/hash';
+import { itemBuildTicks, itemCost } from '../src/sim/data/items';
 import { findPath } from '../src/sim/pathfinding';
-import { DEFAULT_RULES, type GameRules } from '../src/sim/rules';
+import { DEFAULT_RULES, type Difficulty, type GameRules } from '../src/sim/rules';
 import { canPlace } from '../src/sim/systems/construction';
 import { stepWorld } from '../src/sim/step';
 import { TILE, Terrain, type Entity, type World } from '../src/sim/types';
@@ -262,6 +263,68 @@ describe('teams', () => {
     const team = world.players[world.winner].team;
     // Everyone on the other team is out.
     for (const p of world.players) if (p.team !== team) expect(p.defeated).toBe(true);
+  });
+});
+
+describe('difficulty', () => {
+  function ticksToTrain(difficulty: Difficulty): number {
+    const w = flatWorld();
+    w.players[0].difficulty = difficulty;
+    w.players[0].credits = 10000;
+    addBuilding(w, 0, 'cy', 5, 5);
+    addBuilding(w, 0, 'power', 9, 5);
+    addBuilding(w, 0, 'barracks', 5, 9);
+    applyCommand(w, 0, { t: 'build', item: 'rifleman' });
+    for (let i = 1; i < 3000; i++) {
+      stepWorld(w);
+      if ([...w.entities.values()].some((e) => e.owner === 0 && e.type === 'rifleman')) {
+        // Same price whatever the speed.
+        expect(w.players[0].credits).toBe(10000 - itemCost('rifleman'));
+        return i;
+      }
+    }
+    throw new Error('never trained');
+  }
+
+  it('changes build speed', () => {
+    const normal = ticksToTrain('normal');
+    expect(normal).toBe(itemBuildTicks('rifleman'));
+    expect(ticksToTrain('hard')).toBe(Math.ceil(normal / 1.5));
+    expect(ticksToTrain('easy')).toBe(Math.ceil(normal / 0.75));
+  });
+
+  function unload(difficulty: Difficulty): number {
+    const w = flatWorld();
+    w.players[0].difficulty = difficulty;
+    w.players[0].credits = 0;
+    const ref = addBuilding(w, 0, 'refinery', 5, 5);
+    const harv = addUnit(w, 0, 'harvester', 6 * TILE, 8 * TILE);
+    harv.cargo = 100;
+    harv.order = { t: 'harvest', state: 'unloading', tx: -1, ty: -1, refinery: ref.id };
+    for (let i = 0; i < 10 && harv.cargo > 0; i++) stepWorld(w);
+    expect(harv.cargo).toBe(0);
+    return w.players[0].credits;
+  }
+
+  it('changes harvest income', () => {
+    expect(unload('normal')).toBe(100);
+    expect(unload('hard')).toBe(140);
+    expect(unload('easy')).toBe(80);
+  });
+
+  it('is part of the state hash', () => {
+    expect(stateHash(createWorld(5, 2, DEFAULT_RULES, [], ['normal', 'hard']))).not.toBe(stateHash(createWorld(5)));
+    expect(stateHash(createWorld(5, 2, DEFAULT_RULES, [], ['normal', 'normal']))).toBe(stateHash(createWorld(5)));
+  });
+
+  it('a mixed-difficulty AI match is deterministic', () => {
+    const a = aiMatch(6, 3, DEFAULT_RULES, [], ['easy', 'normal', 'hard']);
+    const b = aiMatch(6, 3, DEFAULT_RULES, [], ['easy', 'normal', 'hard']);
+    for (let i = 0; i < 2000; i++) {
+      a.step();
+      b.step();
+    }
+    expect(stateHash(a.world)).toBe(stateHash(b.world));
   });
 });
 

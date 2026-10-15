@@ -88,7 +88,8 @@ export class Game {
     this.transport = transport;
     this.players = players;
     this.connected = this.players.map(() => true);
-    this.begin(createWorld(seed, players.length, rules, players.map((p) => p.team)), LOCAL_PLAYER);
+    const world = createWorld(seed, players.length, rules, players.map((p) => p.team), players.map((p) => p.difficulty));
+    this.begin(world, LOCAL_PLAYER);
     this.ais = this.players.flatMap((p, id) => (p.ai ? [new AIController(id, transport)] : []));
   }
 
@@ -107,7 +108,8 @@ export class Game {
     net.onMessage = () => {
       if (performance.now() - this.lastFrame > BACKGROUND_AFTER_MS) this.pump(BACKGROUND_BUDGET_MS);
     };
-    this.begin(createWorld(info.seed, info.players.length, info.rules, info.players.map((p) => p.team)), info.you);
+    const { seed, players, rules } = info;
+    this.begin(createWorld(seed, players.length, rules, players.map((p) => p.team), players.map((p) => p.difficulty)), info.you);
   }
 
   private begin(world: World, you: number) {

@@ -1,5 +1,6 @@
 import { BUILDINGS } from '../data/buildings';
-import { PRODUCER, isBuildingType, itemBuildTicks, itemCost, itemPrereq, queueKindOf } from '../data/items';
+import { PRODUCER, isBuildingType, itemCost, itemPrereq, itemProgressTotal, queueKindOf } from '../data/items';
+import { DIFFICULTY } from '../rules';
 import { bfsFind } from '../pathfinding';
 import { TILE, type Entity, type ItemType, type Player, type QueueKind, type UnitType, type World } from '../types';
 import { addUnit, hasBuilding } from '../world';
@@ -37,14 +38,14 @@ export function canBuild(world: World, owner: number, item: ItemType): boolean {
 export function updateProduction(world: World): void {
   for (const p of world.players) {
     if (p.defeated) continue;
-    const step = isLowPower(p) ? 1 : 2;
+    const step = DIFFICULTY[p.difficulty].build * (isLowPower(p) ? 1 : 2);
     for (const kind of QUEUE_KINDS) {
       const q = p.queues[kind];
       if (q.items.length === 0 || q.ready) continue;
       const producer = findProducer(world, p.id, kind);
       if (!producer) continue;
       const item = q.items[0];
-      const total = Math.max(1, itemBuildTicks(item) * 2);
+      const total = itemProgressTotal(item);
       if (q.progress < total) {
         const next = Math.min(total, q.progress + step);
         const targetSpent = Math.floor((itemCost(item) * next) / total);

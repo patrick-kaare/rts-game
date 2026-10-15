@@ -1,7 +1,7 @@
 import { BUILDINGS } from './data/buildings';
 import { UNITS } from './data/units';
 import { generateMap } from './map';
-import { DEFAULT_RULES, type GameRules, type StartUnitsRule } from './rules';
+import { DEFAULT_RULES, type Difficulty, type GameRules, type StartUnitsRule } from './rules';
 import {
   TILE,
   Terrain,
@@ -32,8 +32,14 @@ const START_UNITS: Record<StartUnitsRule, [UnitType, number, number][]> = {
 /** Internal team for a player who picked none in the lobby, so nobody shares it. */
 const SOLO_TEAM = 100;
 
-/** `teams[i]` is player i's lobby team, 0 for none. */
-export function createWorld(seed: number, playerCount = 2, rules: GameRules = DEFAULT_RULES, teams: number[] = []): World {
+/** `teams[i]` is player i's lobby team, 0 for none. `difficulties[i]` defaults to Normal. */
+export function createWorld(
+  seed: number,
+  playerCount = 2,
+  rules: GameRules = DEFAULT_RULES,
+  teams: number[] = [],
+  difficulties: Difficulty[] = [],
+): World {
   const map = generateMap(seed, playerCount, rules.mapSize);
   const n = map.w * map.h;
   const blocked = new Uint8Array(n);
@@ -74,6 +80,7 @@ export function createWorld(seed: number, playerCount = 2, rules: GameRules = DE
       },
       defeated: false,
       team: teams[p] ? teams[p] : SOLO_TEAM + p,
+      difficulty: difficulties[p] ?? 'normal',
       startX: start.x,
       startY: start.y,
     };

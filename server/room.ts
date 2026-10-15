@@ -16,7 +16,7 @@ import {
   type TickBundle,
 } from '../src/net/protocol';
 import { applyCommand } from '../src/sim/commands';
-import { DEFAULT_RULES, cleanRules, isValidRules, type GameRules } from '../src/sim/rules';
+import { DEFAULT_RULES, cleanRules, isDifficulty, isValidRules, type Difficulty, type GameRules } from '../src/sim/rules';
 import { stateHash } from '../src/sim/hash';
 import { stepWorld } from '../src/sim/step';
 import { TICK_MS, type Command, type PlayerCommand, type World } from '../src/sim/types';
@@ -32,6 +32,7 @@ interface Seat {
   token: string;
   socket: WebSocket | null;
   team: number;
+  difficulty: Difficulty;
 }
 
 /**
@@ -68,15 +69,19 @@ export class Room {
     rules: unknown = DEFAULT_RULES,
     slots: unknown = [],
     teams: unknown = [],
+    difficulties: unknown = [],
   ) {
     this.rules = isValidRules(rules) ? cleanRules(rules) : { ...DEFAULT_RULES };
     // Setups for slots 1 and up; slot 0 is the creator's.
     const setup = Array.isArray(slots) && slots.length === SLOT_COUNT - 1 && slots.every(isSlotSetting) ? slots : null;
     for (let i = 0; i < SLOT_COUNT; i++) {
       const kind = i === 0 ? 'open' : (setup?.[i - 1] ?? (i === 1 ? 'ai' : 'open'));
-      this.seats.push({ kind, name: '', token: '', socket: null, team: 0 });
+      this.seats.push({ kind, name: '', token: '', socket: null, team: 0, difficulty: 'normal' });
     }
     if (Array.isArray(teams) && teams.length === SLOT_COUNT && teams.every(isTeam)) teams.forEach((t, i) => (this.seats[i].team = t));
+    if (Array.isArray(difficulties) && difficulties.length === SLOT_COUNT && difficulties.every(isDifficulty)) {
+      difficulties.forEach((d, i) => (this.seats[i].difficulty = d));
+    }
   }
 
   /** Take the first open seat. Returns the seat index, or an error message. */
@@ -138,7 +143,7 @@ export class Room {
       if (kind !== 'open') return;
       seat.socket?.close(4001, 'Removed by the host.');
     }
-    this.seats[index] = { kind, name: '', token: '', socket: null, team: seat.team };
+    this.seats[index] = { kind, name: '', token: '', socket: null, team: seat.team, difficulty: seat.difficulty };
     this.broadcastLobby();
   }
 
@@ -149,6 +154,15 @@ export class Room {
     if (from !== 0 && from !== index) return;
     if (this.seats[index].team === team) return;
     this.seats[index].team = team;
+    this.broadcastLobby();
+  }
+
+  /** Host changes an AI's difficulty. */
+  setDifficulty(from: number, index: unknown, difficulty: unknown) {
+    if (from !== 0 || this.phase !== 'lobby' || !isDifficulty(difficulty)) return;
+    if (typeof index !== 'number' || !Number.isInteger(index) || index < 1 || index >= SLOT_COUNT) return;
+    if (this.seats[index].difficulty === difficulty) return;
+    this.seats[index].difficulty = difficulty;
     this.broadcastLobby();
   }
 
@@ -165,8 +179,17 @@ export class Room {
     if (taken.length < 2) return 'You need at least two players.';
     if (sideCount(taken.map(([s]) => s.team)) < 2) return 'Everyone is on the same team.';
     this.players = taken.map(([, i]) => i);
-    this.matchPlayers = taken.map(([s, i]) => ({ name: s.kind === 'ai' ? `AI ${i + 1}` : s.name, ai: s.kind === 'ai', team: s.team }));
-    this.world = createWorld(this.seed, this.players.length, this.rules, this.matchPlayers.map((p) => p.team));
+    this.matchPlayers = taken.map(([s, i]) => {
+      const ai = s.kind === 'ai';
+      return { name: ai ? `AI ${i + 1}` : s.name, ai, team: s.team, difficulty: ai ? s.difficulty : 'normal' };
+    });
+    this.world = createWorld(
+      this.seed,
+      this.players.length,
+      this.rules,
+      this.matchPlayers.map((p) => p.team),
+      this.matchPlayers.map((p) => p.difficulty),
+    );
     const transport: CommandTransport = {
       send: (player, cmd) => this.pending.push({ player, cmd: structuredClone(cmd) }),
       take: () => [],
@@ -271,7 +294,13 @@ export class Room {
   }
 
   private broadcastLobby() {
-    const slots: SlotInfo[] = this.seats.map((s) => ({ kind: s.kind, name: s.name, connected: !!s.socket, team: s.team }));
+    const slots: SlotInfo[] = this.seats.map((s) => ({
+      kind: s.kind,
+      name: s.name,
+      connected: !!s.socket,
+      team: s.team,
+      difficulty: s.difficulty,
+    }));
     this.broadcast({ t: 'lobby', slots, rules: this.rules });
   }
 

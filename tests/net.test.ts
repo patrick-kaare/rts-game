@@ -3,7 +3,7 @@ import { createServer, type GameServer } from '../server/index';
 import type { Room } from '../server/room';
 import { NetTransport, type StartInfo } from '../src/net/net';
 import { HASH_INTERVAL, type SlotInfo, type SlotSetting } from '../src/net/protocol';
-import { DEFAULT_RULES, type GameRules } from '../src/sim/rules';
+import { DEFAULT_RULES, type Difficulty, type GameRules } from '../src/sim/rules';
 import { applyCommand } from '../src/sim/commands';
 import { stateHash } from '../src/sim/hash';
 import { stepWorld } from '../src/sim/step';
@@ -29,7 +29,8 @@ class Client {
     };
     this.net.onStart = (info) => {
       this.info = info;
-      this.world = createWorld(info.seed, info.players.length, info.rules, info.players.map((p) => p.team));
+      const { seed, players, rules } = info;
+      this.world = createWorld(seed, players.length, rules, players.map((p) => p.team), players.map((p) => p.difficulty));
     };
     this.net.onError = (m) => this.errors.push(m);
     this.net.onDesync = (t) => this.desyncs.push(t);
@@ -37,8 +38,8 @@ class Client {
   }
 
   /** Host a new room. An empty slot setup gets the server's defaults (slot 1 AI, the rest open). */
-  create(name: string, rules: GameRules = DEFAULT_RULES, slots: SlotSetting[] = [], teams: number[] = []) {
-    this.net.create(name, rules, slots, teams);
+  create(name: string, rules: GameRules = DEFAULT_RULES, slots: SlotSetting[] = [], teams: number[] = [], difficulties: Difficulty[] = []) {
+    this.net.create(name, rules, slots, teams, difficulties);
   }
 
   /** Run every tick that has arrived. */
@@ -217,12 +218,40 @@ describe('game server', () => {
 
   it('falls back to defaults for a malformed setup', async () => {
     const a = client();
-    a.net.create('Alice', { credits: 7 } as GameRules, ['human' as SlotSetting], [9]);
+    a.net.create('Alice', { credits: 7 } as GameRules, ['human' as SlotSetting], [9], ['brutal' as Difficulty]);
     await until(() => !!a.rules);
     expect(a.rules).toEqual(DEFAULT_RULES);
     expect(a.lobby[1].kind).toBe('ai');
     expect(a.lobby[2].kind).toBe('open');
     expect(a.lobby.every((s) => s.team === 0)).toBe(true);
+    expect(a.lobby.every((s) => s.difficulty === 'normal')).toBe(true);
+  });
+
+  it('lets only the host set AI difficulty, and starts a match that stays in sync', async () => {
+    const a = client();
+    const setup: SlotSetting[] = ['open', 'ai', 'ai', 'closed', 'closed', 'closed', 'closed', 'closed', 'closed'];
+    a.create('Alice', DEFAULT_RULES, setup, [], ['normal', 'normal', 'easy', 'normal', 'normal', 'normal', 'normal', 'normal', 'normal', 'normal']);
+    await until(() => a.net.slot === 0 && a.lobby.length > 0);
+    expect(a.lobby[2].difficulty).toBe('easy');
+    const b = client();
+    b.net.join(a.net.code, 'Bob');
+    await until(() => a.lobby[1]?.kind === 'human');
+    b.net.setDifficulty(2, 'hard'); // not the host
+    a.net.setDifficulty(3, 'nope' as Difficulty);
+    a.net.setDifficulty(3, 'hard');
+    await until(() => a.lobby[3].difficulty === 'hard');
+    expect(a.lobby[2].difficulty).toBe('easy');
+    // Humans play Normal whatever their seat says.
+    a.net.setDifficulty(1, 'hard');
+    await until(() => a.lobby[1].difficulty === 'hard');
+    a.net.start();
+    await until(() => !!a.info && !!b.info);
+    expect(b.info!.players.map((p) => p.difficulty)).toEqual(['normal', 'normal', 'easy', 'hard']);
+    expect(b.world!.players.map((p) => p.difficulty)).toEqual(['normal', 'normal', 'easy', 'hard']);
+    const room = server.rooms.get(a.net.code)!;
+    await runTicks(room, 300, a, b);
+    expect(stateHash(a.world!)).toBe(room.serverHash);
+    expect(stateHash(b.world!)).toBe(room.serverHash);
   });
 
   it('lets the host set any team and guests only their own', async () => {

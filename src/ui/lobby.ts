@@ -5,11 +5,13 @@ import { MAP_SIDES, MAX_PLAYERS, mapSideFor } from '../sim/map';
 import {
   CREDIT_OPTIONS,
   DEFAULT_RULES,
+  DIFFICULTY_OPTIONS,
   FOG_OPTIONS,
   MAP_SIZE_OPTIONS,
   START_UNITS_OPTIONS,
   cleanRules,
   isValidRules,
+  type Difficulty,
   type GameRules,
   type MapSizeRule,
 } from '../sim/rules';
@@ -68,6 +70,7 @@ const FOG_TEXT = { full: 'Fog of war', explored: 'Map revealed', off: 'No fog' }
 const START_UNITS_TEXT = { none: 'Construction yard only', squad: '2 riflemen', army: '4 riflemen, 2 tanks' };
 const MAP_SIZE_TEXT = { auto: 'Auto', small: 'Small', medium: 'Medium', large: 'Large', huge: 'Huge' };
 const SLOT_TEXT = { open: 'Open', ai: 'AI', closed: 'Closed' };
+const DIFFICULTY_TEXT = { easy: 'Easy', normal: 'Normal', hard: 'Hard' };
 
 /** Slots of a new offline game: you against one AI. */
 function localSlots(name: string): SlotInfo[] {
@@ -76,6 +79,7 @@ function localSlots(name: string): SlotInfo[] {
     name: i === 0 ? name || 'You' : '',
     connected: true,
     team: 0,
+    difficulty: 'normal',
   }));
 }
 
@@ -279,6 +283,7 @@ export class Lobby {
       } else {
         r.append(h('span', SLOT_TEXT[s.kind]));
       }
+      if (s.kind === 'ai') r.append(this.difficultyPicker(i, s.difficulty, isHost));
       if (s.kind === 'human' || s.kind === 'ai') r.append(this.teamPicker(i, s.team, isHost || i === you));
       list.append(r);
     });
@@ -322,6 +327,21 @@ export class Lobby {
   private setTeam(i: number, team: number) {
     if (this.online) return this.net!.setTeam(i, team);
     this.slots[i] = { ...this.slots[i], team };
+    this.renderRoom();
+  }
+
+  private difficultyPicker(i: number, difficulty: Difficulty, editable: boolean): HTMLElement {
+    if (!editable) return h('span', DIFFICULTY_TEXT[difficulty], 'difficulty');
+    const sel = document.createElement('select');
+    sel.className = 'difficulty';
+    for (const d of DIFFICULTY_OPTIONS) sel.append(new Option(DIFFICULTY_TEXT[d], d, false, d === difficulty));
+    sel.addEventListener('change', () => this.setDifficulty(i, sel.value as Difficulty));
+    return sel;
+  }
+
+  private setDifficulty(i: number, difficulty: Difficulty) {
+    if (this.online) return this.net!.setDifficulty(i, difficulty);
+    this.slots[i] = { ...this.slots[i], difficulty };
     this.renderRoom();
   }
 
@@ -378,7 +398,7 @@ export class Lobby {
   private setSlot(i: number, kind: SlotSetting) {
     if (this.online) return this.net!.setSlot(i, kind);
     if (kind === 'open') return this.goOnline(i);
-    this.slots[i] = { kind, name: '', connected: true, team: this.slots[i].team };
+    this.slots[i] = { kind, name: '', connected: true, team: this.slots[i].team, difficulty: this.slots[i].difficulty };
     this.renderRoom();
   }
 
@@ -389,7 +409,13 @@ export class Lobby {
     this.renderMessage('Creating online game…');
     const net = this.connect();
     this.pendingLocal = local;
-    net.create(local[0].name, this.rules, setup, local.map((s) => s.team));
+    net.create(
+      local[0].name,
+      this.rules,
+      setup,
+      local.map((s) => s.team),
+      local.map((s) => s.difficulty),
+    );
   }
 
   /** Give up moving online and go back to the offline lobby. */
@@ -405,8 +431,8 @@ export class Lobby {
     if (this.online) return this.net!.start();
     const players: MatchPlayer[] = [];
     this.slots.forEach((s, i) => {
-      if (s.kind === 'human') players.push({ name: s.name, ai: false, team: s.team });
-      else if (s.kind === 'ai') players.push({ name: `AI ${i + 1}`, ai: true, team: s.team });
+      if (s.kind === 'human') players.push({ name: s.name, ai: false, team: s.team, difficulty: 'normal' });
+      else if (s.kind === 'ai') players.push({ name: `AI ${i + 1}`, ai: true, team: s.team, difficulty: s.difficulty });
     });
     this.hide();
     this.hooks.playLocal((Math.random() * 2 ** 31) | 0, players, { ...this.rules });

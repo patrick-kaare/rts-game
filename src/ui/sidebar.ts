@@ -1,6 +1,6 @@
 import type { Game } from '../game';
 import { TEAM } from '../render/palette';
-import { BUILD_MENU, isBuildingType, itemBuildTicks, itemCost, itemName, itemPrereq, queueKindOf } from '../sim/data/items';
+import { BUILD_MENU, isBuildingType, itemBuildTicks, itemCost, itemName, itemPrereq, itemProgressTotal, queueKindOf } from '../sim/data/items';
 import { canBuild } from '../sim/systems/production';
 import type { ItemType, QueueKind, World } from '../sim/types';
 import { buildingDef, unitDef } from '../sim/world';
@@ -141,7 +141,7 @@ export class Sidebar {
       b.el.disabled = !available || busyOther;
       b.el.classList.toggle('locked', !available);
       b.el.classList.toggle('placing', this.game.state.placing === b.item);
-      const frac = active ? q.progress / Math.max(1, itemBuildTicks(b.item) * 2) : 0;
+      const frac = active ? q.progress / itemProgressTotal(b.item) : 0;
       b.progress.style.height = `${(1 - frac) * 100}%`;
       b.progress.style.display = active ? 'block' : 'none';
       b.badge.textContent = count > 1 ? String(count) : '';

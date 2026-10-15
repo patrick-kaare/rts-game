@@ -1,4 +1,4 @@
-import { FOG_OPTIONS, MAP_SIZE_OPTIONS, START_UNITS_OPTIONS } from './rules';
+import { DIFFICULTY_OPTIONS, FOG_OPTIONS, MAP_SIZE_OPTIONS, START_UNITS_OPTIONS } from './rules';
 import type { World } from './types';
 
 /** FNV-1a over the authoritative sim state. Used for determinism tests and future desync checks. */
@@ -19,6 +19,7 @@ export function stateHash(world: World): number {
   for (const p of world.players) {
     mix(p.credits);
     mix(p.team);
+    mix(DIFFICULTY_OPTIONS.indexOf(p.difficulty));
     for (const q of Object.values(p.queues)) {
       mix(q.items.length);
       mix(q.progress);

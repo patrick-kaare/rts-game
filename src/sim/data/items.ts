@@ -30,6 +30,11 @@ export function itemBuildTicks(item: ItemType): number {
   return isBuildingType(item) ? BUILDINGS[item].buildTicks : UNITS[item].buildTicks;
 }
 
+/** Queue progress needed to finish an item: 200 per tick at Normal speed and full power. */
+export function itemProgressTotal(item: ItemType): number {
+  return Math.max(1, itemBuildTicks(item) * 200);
+}
+
 export function itemPrereq(item: ItemType): readonly string[] {
   return isBuildingType(item) ? BUILDINGS[item].prereq : UNITS[item].prereq;
 }

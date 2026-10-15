@@ -1,4 +1,4 @@
-import type { GameRules } from '../sim/rules';
+import type { Difficulty, GameRules } from '../sim/rules';
 import type { Command, PlayerCommand } from '../sim/types';
 import type { ClientMsg, ServerMsg, SlotInfo, SlotSetting } from './protocol';
 import type { CommandTransport } from './transport';
@@ -39,8 +39,8 @@ export class NetTransport implements CommandTransport {
 
   constructor(private url: string) {}
 
-  create(name: string, rules: GameRules, slots: SlotSetting[], teams: number[]) {
-    this.open({ t: 'create', name, rules, slots, teams });
+  create(name: string, rules: GameRules, slots: SlotSetting[], teams: number[], difficulties: Difficulty[]) {
+    this.open({ t: 'create', name, rules, slots, teams, difficulties });
   }
 
   join(code: string, name: string) {
@@ -59,6 +59,10 @@ export class NetTransport implements CommandTransport {
 
   setTeam(index: number, team: number) {
     this.post({ t: 'team', index, team });
+  }
+
+  setDifficulty(index: number, difficulty: Difficulty) {
+    this.post({ t: 'difficulty', index, difficulty });
   }
 
   setRules(rules: GameRules) {

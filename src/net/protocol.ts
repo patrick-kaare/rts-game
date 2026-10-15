@@ -1,7 +1,7 @@
 import { BUILDINGS } from '../sim/data/buildings';
 import { UNITS } from '../sim/data/units';
 import { MAX_PLAYERS } from '../sim/map';
-import type { GameRules } from '../sim/rules';
+import type { Difficulty, GameRules } from '../sim/rules';
 import type { Command, PlayerCommand } from '../sim/types';
 
 /**
@@ -36,6 +36,8 @@ export interface SlotInfo {
   name: string;
   connected: boolean;
   team: number;
+  /** Only meaningful for AI slots. */
+  difficulty: Difficulty;
 }
 
 /** A participant in a running match; the array index is the sim player id. */
@@ -43,6 +45,8 @@ export interface MatchPlayer {
   name: string;
   ai: boolean;
   team: number;
+  /** Always Normal for humans. */
+  difficulty: Difficulty;
 }
 
 /** Commands for one tick, as stored in a match log. Ticks with no commands are omitted. */
@@ -51,15 +55,17 @@ export type TickBundle = [tick: number, cmds: PlayerCommand[]];
 export type ClientMsg =
   /**
    * `slots` is the setup of every slot after the host's own (slot 0), e.g. from an offline lobby.
-   * `teams` is the team of every slot, the host's included.
+   * `teams` and `difficulties` hold every slot's setting, the host's included.
    */
-  | { t: 'create'; name: string; rules: GameRules; slots: SlotSetting[]; teams: number[] }
+  | { t: 'create'; name: string; rules: GameRules; slots: SlotSetting[]; teams: number[]; difficulties: Difficulty[] }
   | { t: 'join'; code: string; name: string }
   | { t: 'rejoin'; code: string; token: string }
   /** Host only. Setting a human's seat to 'open' removes them. */
   | { t: 'slot'; index: number; kind: SlotSetting }
   /** In the lobby: the host can set any slot's team, others only their own. */
   | { t: 'team'; index: number; team: number }
+  /** Host only, in the lobby. */
+  | { t: 'difficulty'; index: number; difficulty: Difficulty }
   /** Host only, in the lobby. */
   | { t: 'rules'; rules: GameRules }
   | { t: 'start' }

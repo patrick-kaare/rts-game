@@ -1,4 +1,4 @@
-import type { GameRules } from './rules';
+import type { Difficulty, GameRules } from './rules';
 /** Sub-tile units per tile. All sim positions are integers in these units. */
 export const TILE = 256;
 export const TICK_RATE = 20;
@@ -71,7 +71,7 @@ export interface Entity {
 
 export interface Queue {
   items: ItemType[];
-  /** Progress in half-ticks (2 per tick at full power, 1 at low power). */
+  /** Progress out of itemProgressTotal: the build speed percentage per tick, halved at low power. */
   progress: number;
   /** Credits spent on the current item so far. */
   spent: number;
@@ -88,6 +88,7 @@ export interface Player {
   defeated: boolean;
   /** Players on the same team are allies. Players without a lobby team get a team of their own. */
   team: number;
+  difficulty: Difficulty;
   /** Top-left tile of the starting construction yard. */
   startX: number;
   startY: number;
