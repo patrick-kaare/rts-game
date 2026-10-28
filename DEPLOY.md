@@ -17,7 +17,7 @@ Cloudflare edge ──tunnel──▶ cloudflared ──▶ http://localhost:300
 ```
 
 The deploy checkout's `origin` is whatever repo the box should follow. If you
-cannot push to `pkkann/rts-game`, point it at your fork instead: the deploy
+cannot push to `patrick-kaare/rts-game`, point it at your fork instead: the deploy
 workflow triggers on `master` of the repo the runner is registered against,
 and `setup-actions.sh` reads that repo off `origin`, so a fork works end to end
 (`git remote set-url origin https://github.com/<you>/rts-game.git`).
@@ -26,7 +26,7 @@ and `setup-actions.sh` reads that repo off `origin`, so a fork works end to end
 
 ```
 ssh -t kaare@10.0.0.192
-git clone https://github.com/<owner>/rts-game.git ~/rts-game
+git clone https://github.com/patrick-kaare/rts-game.git ~/rts-game
 cd ~/rts-game && bash scripts/setup-server.sh
 ```
 
@@ -50,7 +50,7 @@ ssh -t kaare@10.0.0.192 "cd ~/rts-game && bash scripts/setup-actions.sh"
 ```
 
 It installs the `gh` CLI, logs in with the device flow (sign in as the
-account that owns `pkkann/rts-game`, shamo6262@gmail.com — admin rights are
+account with admin rights on `patrick-kaare/rts-game` — they are
 needed to register a runner), registers the runner in `~/actions-runner-rts`,
 installs it as a systemd service and grants `kaare` one passwordless sudo
 right: `systemctl restart rts.service`. The runner's `.env` carries
@@ -60,13 +60,34 @@ not of the workflow file.
 Check it:
 
 ```
-gh api repos/pkkann/rts-game/actions/runners --jq '.runners[]|"\(.name) \(.status)"'
-gh workflow run Deploy --repo pkkann/rts-game && gh run watch --repo pkkann/rts-game
+gh api repos/patrick-kaare/rts-game/actions/runners --jq '.runners[]|"\(.name) \(.status)"'
+gh workflow run Deploy --repo patrick-kaare/rts-game && gh run watch --repo patrick-kaare/rts-game
 ```
 
 The repo is public and the runner is a real machine on a home network, so the
 workflow must only ever trigger on `push` to `master` and `workflow_dispatch`.
 Never add `pull_request`: a fork could then run its code on the box.
+
+## Moving to a new repo
+
+Done once when the game moved from `pkkann/rts-game` to `patrick-kaare/rts-game`.
+The server keeps running the whole time; only the deploy source changes.
+
+```
+ssh -t kaare@10.0.0.192
+cd ~/actions-runner-rts
+sudo ./svc.sh stop && sudo ./svc.sh uninstall
+./config.sh remove --token <remove-token from the OLD repo's Settings > Actions > Runners>
+# if the old repo is gone or unreachable: rm .runner .credentials .credentials_rsaparams .service
+cd ~/rts-game
+git remote set-url origin https://github.com/patrick-kaare/rts-game.git
+git pull --ff-only origin master      # same history, so this is a no-op or a fast-forward
+bash scripts/setup-actions.sh         # registers the runner against the new repo
+```
+
+Then run `gh workflow run Deploy --repo patrick-kaare/rts-game` and confirm the
+run is green. Remove the old runner entry in the old repo's settings if it
+shows as offline, and disable that repo's Deploy workflow.
 
 ## Manual deploy
 

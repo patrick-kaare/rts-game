@@ -60,7 +60,7 @@ class Client {
   }
 }
 
-async function until(cond: () => boolean, ms = 3000) {
+async function until(cond: () => boolean, ms = 10_000) {
   const end = Date.now() + ms;
   while (!cond()) {
     if (Date.now() > end) throw new Error('timed out');

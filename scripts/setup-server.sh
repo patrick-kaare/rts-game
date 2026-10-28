@@ -2,7 +2,7 @@
 # setup-server.sh — install Shape RTS as a systemd service on a Debian/Ubuntu
 # box and publish it through the Cloudflare tunnel that is already on it.
 #
-#   git clone https://github.com/pkkann/rts-game.git ~/rts-game
+#   git clone https://github.com/patrick-kaare/rts-game.git ~/rts-game
 #   cd ~/rts-game && bash scripts/setup-server.sh
 #   (use `ssh -t` when running it remotely: it needs a terminal for sudo)
 #

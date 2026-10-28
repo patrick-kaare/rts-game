@@ -6,7 +6,7 @@
 #
 # What it does: installs the gh CLI, logs you in (device flow — it prints a
 # code you type into github.com from any browser, so a headless box is fine;
-# sign in as the account that owns the repo, shamo6262@gmail.com), reads the
+# sign in as someone with admin rights on the repo), reads the
 # repo off the git remote, pulls a runner registration token through the API,
 # registers the runner in ~/actions-runner-rts, installs it as a systemd
 # service, and grants it the one sudo right the deploy job needs. From then on
@@ -119,8 +119,7 @@ if gh auth status >/dev/null 2>&1; then
 else
   echo "  ${B}Logging in from the terminal.${R} gh prints a one-time code and a URL —"
   echo "  open it anywhere (phone, laptop) and type the code in. Sign in as the"
-  echo "  account that owns the repo (${B}shamo6262@gmail.com${R}); registering a runner"
-  echo "  needs admin rights on it."
+  echo "  account with admin rights on the repo; registering a runner needs them."
   echo
   # https for git: this user's ssh key may be a deploy key for another repo.
   if gh auth login --hostname github.com --git-protocol https --web; then
@@ -141,7 +140,7 @@ ORIGIN=$(git -C "$REPO" config --get remote.origin.url 2>/dev/null || true)
 SLUG=$(echo "$ORIGIN" | sed -E 's#^git@[^:]+:##; s#^https?://[^/]+/##; s#\.git$##')
 if [ -z "$SLUG" ] || [ "$(echo "$SLUG" | tr -cd '/' | wc -c)" != 1 ]; then
   warn "could not read owner/repo from the remote ($ORIGIN)"
-  SLUG=$(ask "owner/repo" "pkkann/rts-game")
+  SLUG=$(ask "owner/repo" "patrick-kaare/rts-game")
 fi
 SLUG=$(ask "Register the runner against which repo?" "$SLUG")
 [ -n "$SLUG" ] || { echo "${RED}No repo. Stopping.${R}"; exit 1; }
@@ -222,8 +221,14 @@ step "Register the runner"
 if [ ! -x "$RUNNER_DIR/config.sh" ]; then
   fail "nothing to register — the download step did not finish"
 elif [ -f "$RUNNER_DIR/.runner" ]; then
-  skip "already registered as '$(sed -n 's/.*"agentName": *"\([^"]*\)".*/\1/p' "$RUNNER_DIR/.runner" 2>/dev/null || echo '?')'"
-  echo "       ${DIM}to re-register: cd $RUNNER_DIR && ./config.sh remove, then re-run this${R}"
+  REG_URL=$(sed -n 's/.*"gitHubUrl": *"\([^"]*\)".*/\1/p' "$RUNNER_DIR/.runner" 2>/dev/null || true)
+  if [ -n "$REG_URL" ] && [ "$REG_URL" != "https://github.com/$SLUG" ]; then
+    # Moved to a new repo: this runner would keep listening to the old one.
+    fail "runner is registered against $REG_URL, not $SLUG — unregister it first (see DEPLOY.md, \"Moving to a new repo\") and re-run"
+  else
+    skip "already registered as '$(sed -n 's/.*"agentName": *"\([^"]*\)".*/\1/p' "$RUNNER_DIR/.runner" 2>/dev/null || echo '?')'"
+    echo "       ${DIM}to re-register: cd $RUNNER_DIR && ./config.sh remove, then re-run this${R}"
+  fi
 else
   echo "  fetching a registration token from the API"
   RTOKEN=$(gh api -X POST "repos/$SLUG/actions/runners/registration-token" --jq '.token' 2>/dev/null || true)
