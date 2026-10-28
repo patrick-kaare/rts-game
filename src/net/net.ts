@@ -129,6 +129,10 @@ export class NetTransport implements CommandTransport {
     const ws = new WebSocket(this.url);
     this.ws = ws;
     ws.onopen = () => ws.send(JSON.stringify(first));
+    // The close handler below does the reporting. Without an error listener the
+    // `ws` package (what Node < 22 uses) throws on a refused connection before it
+    // ever emits close.
+    ws.onerror = () => {};
     ws.onmessage = (ev) => {
       let msg: ServerMsg;
       try {
