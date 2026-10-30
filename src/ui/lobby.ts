@@ -122,6 +122,8 @@ function setRoomInUrl(code: string | null) {
   history.replaceState(null, '', url);
 }
 
+declare const __COMMIT__: string;
+
 /**
  * Start menu and game lobby. A new game starts out in the browser; setting a
  * slot to Open moves the lobby to the game server so others can join. Games
@@ -142,7 +144,7 @@ export class Lobby {
 
   constructor(private hooks: LobbyHooks) {
     this.el.id = 'lobby';
-    this.el.append(this.chat.el);
+    this.el.append(this.chat.el, h('div', `BUILD ${__COMMIT__}`, 'build-hash'));
   }
 
   /** Show the menu, or go straight back into a game this browser has a seat in. */
@@ -236,8 +238,17 @@ export class Lobby {
     const name = input('Your name', store.get(NAME_KEY) ?? '');
     name.maxLength = 20;
     name.addEventListener('change', () => store.set(NAME_KEY, name.value.trim()));
+    name.addEventListener('input', () => name.classList.remove('invalid'));
+    /** False, with the field flagged and focused, while the name is empty. */
+    const named = () => {
+      if (name.value.trim()) return true;
+      name.classList.add('invalid');
+      name.focus();
+      return false;
+    };
 
     const create = button('New game', () => {
+      if (!named()) return;
       store.set(NAME_KEY, name.value.trim());
       this.net = null;
       this.slots = localSlots(name.value.trim());
@@ -250,18 +261,20 @@ export class Lobby {
     codeIn.addEventListener('input', () => (codeIn.value = codeIn.value.toUpperCase()));
     const join = button('Join', () => {
       const c = codeIn.value.trim().toUpperCase();
+      if (!named()) return;
       if (!c) return codeIn.focus();
       store.set(NAME_KEY, name.value.trim());
       this.renderMessage(`Joining ${c}…`);
-      this.connect().join(c, name.value);
+      this.connect().join(c, name.value.trim());
     });
     codeIn.addEventListener('keydown', (ev) => ev.key === 'Enter' && join.click());
     const watch = button('Watch', () => {
       const c = codeIn.value.trim().toUpperCase();
+      if (!named()) return;
       if (!c) return codeIn.focus();
       store.set(NAME_KEY, name.value.trim());
       this.renderMessage(`Watching ${c}…`);
-      this.connect().watch(c, name.value);
+      this.connect().watch(c, name.value.trim());
     }, 'secondary');
     watch.title = 'Watch as a spectator, also once the game has started';
 
