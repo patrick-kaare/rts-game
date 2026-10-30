@@ -13,23 +13,9 @@ import { updateFog } from '../src/sim/systems/fog';
 import { stepWorld } from '../src/sim/step';
 import { TILE, Terrain, type Entity, type World } from '../src/sim/types';
 import { addBuilding, addUnit, createWorld, removeEntity, tileOf } from '../src/sim/world';
-import { aiMatch } from './helpers';
-import { AIController } from '../src/ai/ai';
+import { aiMatch, flatWorld } from './helpers';
+import { AIController, BUILD_ORDERS } from '../src/ai/ai';
 import { LocalTransport } from '../src/net/local';
-
-function flatWorld(): World {
-  const w = createWorld(1);
-  w.terrain.fill(Terrain.Grass);
-  w.blocked.fill(0);
-  w.ore.fill(0);
-  w.gems.fill(0);
-  w.oreBed.fill(0);
-  w.buildingAt.fill(0);
-  w.entities.clear();
-  // Keep player 1 alive so the game does not end immediately.
-  addBuilding(w, 1, 'cy', 60, 0);
-  return w;
-}
 
 describe('pathfinding', () => {
   it('finds a straight path on open ground', () => {
@@ -806,6 +792,124 @@ describe('AI tactics', () => {
     const harv = addUnit(w, 1, 'harvester', 18 * TILE + TILE / 2, 10 * TILE + TILE / 2);
     for (let i = 0; i < 20; i++) step();
     expect(tanks.every((t) => t.order.t === 'attack' && t.order.target === harv.id)).toBe(true);
+  });
+});
+
+describe('AI defense', () => {
+  function aiWorld() {
+    const w = flatWorld();
+    w.players[0].startX = 5;
+    w.players[0].startY = 5;
+    w.players[1].startX = 60;
+    w.players[1].startY = 0;
+    w.players[0].credits = 0;
+    addBuilding(w, 0, 'cy', 5, 5);
+    w.tick = 1200;
+    const transport = new LocalTransport();
+    const ai = new AIController(0, transport);
+    const step = () => {
+      transport.currentTick = w.tick;
+      ai.update(w);
+      for (const c of transport.take(w.tick)) applyCommand(w, c.player, c.cmd);
+      stepWorld(w);
+    };
+    return { w, step };
+  }
+  const at = (t: number) => t * TILE + TILE / 2;
+
+  it('defends a harvester that is attacked far from the base', () => {
+    const { w, step } = aiWorld();
+    addUnit(w, 0, 'harvester', at(30), at(40));
+    const guards = [addUnit(w, 0, 'rifleman', at(8), at(8)), addUnit(w, 0, 'rifleman', at(9), at(8))];
+    const raider = addUnit(w, 1, 'jeep', at(32), at(40));
+    for (let i = 0; i < 20; i++) step();
+    for (const g of guards) {
+      expect(g.order.t).toBe('attackMove');
+      if (g.order.t === 'attackMove') expect(Math.abs(g.order.x / TILE - raider.x / TILE)).toBeLessThan(6);
+    }
+  });
+
+  it('ignores enemy harvesters that wander near its own', () => {
+    const { w, step } = aiWorld();
+    addUnit(w, 0, 'harvester', at(30), at(40));
+    const guard = addUnit(w, 0, 'rifleman', at(8), at(8));
+    addUnit(w, 1, 'harvester', at(32), at(40));
+    for (let i = 0; i < 20; i++) step();
+    expect(guard.order.t).not.toBe('attackMove');
+  });
+
+  it('calls a wave home when a raid of several units hits an undefended base', () => {
+    const { w, step } = aiWorld();
+    const wave = Array.from({ length: 6 }, (_, k) => addUnit(w, 0, 'rifleman', at(13 - 1 + (k % 3)), at(5 - 1 + Math.floor(k / 3))));
+    for (let i = 0; i < 30; i++) step();
+    expect(wave.every((u) => u.order.t === 'attackMove')).toBe(true);
+    // The wave is away; three raiders reach the base.
+    for (const u of wave) {
+      u.x = at(50);
+      u.y = at(5);
+      u.order = { t: 'attackMove', x: at(60), y: at(0) };
+    }
+    for (let k = 0; k < 3; k++) addUnit(w, 1, 'jeep', at(8 + k), at(9));
+    for (let i = 0; i < 20; i++) step();
+    for (const u of wave) {
+      expect(u.order.t).toBe('attackMove');
+      if (u.order.t === 'attackMove') expect(u.order.x / TILE).toBeLessThan(15);
+    }
+  });
+
+  it('keeps a wave on the attack when only one scout reaches the base', () => {
+    const { w, step } = aiWorld();
+    const wave = Array.from({ length: 6 }, (_, k) => addUnit(w, 0, 'rifleman', at(13 - 1 + (k % 3)), at(5 - 1 + Math.floor(k / 3))));
+    for (let i = 0; i < 30; i++) step();
+    for (const u of wave) {
+      u.x = at(50);
+      u.y = at(5);
+    }
+    addUnit(w, 1, 'jeep', at(8), at(9));
+    for (let i = 0; i < 20; i++) step();
+    for (const u of wave) if (u.order.t === 'attackMove') expect(u.order.x / TILE).toBeGreaterThan(30);
+  });
+});
+
+describe('AI build orders', () => {
+  it('never draw from the world rng, which clients do not share', () => {
+    const w = createWorld(3, 2);
+    const ai = new AIController(0, new LocalTransport());
+    const before = w.rng.s;
+    for (let i = 0; i < 200; i++) {
+      w.tick = i;
+      ai.update(w);
+    }
+    expect(w.rng.s).toBe(before);
+  });
+
+  it('are picked from the seed, and different seeds give different plans', () => {
+    const picked = new Set<unknown>();
+    for (let seed = 1; seed <= 12; seed++) {
+      const ai = new AIController(0, new LocalTransport());
+      ai.update(createWorld(seed, 2));
+      picked.add((ai as unknown as { order: unknown }).order);
+    }
+    expect(picked.size).toBeGreaterThan(1);
+    for (const o of picked) expect(BUILD_ORDERS).toContain(o);
+  });
+
+  it.each(BUILD_ORDERS.map((o, i) => [i, o] as const))('plan %i is built out', (_i, order) => {
+    const w = createWorld(5, 2);
+    w.players[0].credits = 100000;
+    // Keep the idle enemy alive so the match does not end and stop production.
+    for (const e of w.entities.values()) if (e.owner === 1) e.hp = e.maxHp = 1e9;
+    const t = new LocalTransport();
+    const ai = new AIController(0, t);
+    (ai as unknown as { order: unknown }).order = order;
+    for (let i = 0; i < 9000; i++) {
+      t.currentTick = w.tick;
+      ai.update(w);
+      for (const c of t.take(w.tick)) applyCommand(w, c.player, c.cmd);
+      stepWorld(w);
+    }
+    const built = (type: string) => [...w.entities.values()].filter((e) => e.owner === 0 && e.type === type).length;
+    for (const type of new Set(order)) expect(built(type), type).toBeGreaterThanOrEqual(order.filter((b) => b === type).length);
   });
 });
 

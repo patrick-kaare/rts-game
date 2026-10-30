@@ -7,7 +7,15 @@ import { TILE, type BuildingType, type Entity, type World } from '../sim/types';
 import { bfsFind } from '../sim/pathfinding';
 import { areAllies, countBuildings, isWall, tileOf, unitDef, weaponOf } from '../sim/world';
 
-const BUILD_ORDER: BuildingType[] = ['power', 'refinery', 'barracks', 'power', 'factory', 'pillbox', 'turret', 'power', 'refinery', 'power', 'barracks'];
+/** Openings an AI can pick from; the plans differ in how soon they get barracks versus refineries and the factory. */
+export const BUILD_ORDERS: BuildingType[][] = [
+  // Balanced
+  ['power', 'refinery', 'barracks', 'refinery', 'power', 'factory', 'pillbox', 'turret', 'power', 'barracks'],
+  // Rush: a second barracks before the second refinery
+  ['power', 'barracks', 'refinery', 'barracks', 'refinery', 'power', 'factory', 'pillbox', 'turret'],
+  // Economy: a second refinery before any army building
+  ['power', 'refinery', 'power', 'refinery', 'barracks', 'factory', 'power', 'pillbox', 'turret', 'barracks'],
+];
 
 /** Ticks past the wave time after which the AI attacks with whatever it has. */
 const WAVE_PATIENCE = 1800;
@@ -23,6 +31,10 @@ const REGROUP_SPREAD = 8;
 const REGROUP_TIMEOUT = 300;
 /** Tanks go after visible enemy harvesters within this many tiles of the wave. */
 const HARVESTER_HUNT = 12;
+/** Armed enemies this close to one of our harvesters count as a threat, like those near buildings. */
+const HARVESTER_GUARD = 8;
+/** A wave is only called home for a raid of at least this many enemy units; a lone scout is the home guard's problem. */
+const RECALL_THREAT = 3;
 
 const healthy = (e: Entity) => e.hp * 100 >= e.maxHp * RETREAT_HP;
 const near = (e: Entity, at: { x: number; y: number }, tiles: number) =>
@@ -37,6 +49,7 @@ export class AIController {
   /** The army out attacking: who is in it, how many set out, and when to stop waiting for stragglers (-1 if not regrouping). */
   private wave: { ids: Set<number>; launched: number; regroupUntil: number } | null = null;
   private nextWaveTick = 1200;
+  private order: BuildingType[] | null = null;
 
   constructor(
     readonly player: number,
@@ -59,6 +72,7 @@ export class AIController {
 
   private manageBase(world: World) {
     const me = world.players[this.player];
+    const order = this.buildOrder(world);
     const q = me.queues.building;
     if (q.ready) {
       const type = q.items[0] as BuildingType;
@@ -73,7 +87,7 @@ export class AIController {
     if (isLowPower(me) || me.powerProduced - me.powerUsed < 10) next = 'power';
     else {
       const counts: Partial<Record<BuildingType, number>> = {};
-      for (const b of BUILD_ORDER) {
+      for (const b of order) {
         counts[b] = (counts[b] ?? 0) + 1;
         if (countBuildings(world, this.player, b) < counts[b]!) {
           next = b;
@@ -84,6 +98,14 @@ export class AIController {
     if (next && canBuild(world, this.player, next) && me.credits >= itemCost(next) / 3) {
       this.send({ t: 'build', item: next });
     }
+  }
+
+  /**
+   * This AI's opening, picked from the game seed and its player slot. The world rng is off limits here:
+   * clients never run the AI, so drawing from it would put them out of step with the server.
+   */
+  private buildOrder(world: World): BuildingType[] {
+    return (this.order ??= BUILD_ORDERS[((world.seed ^ Math.imul(this.player + 1, 0x9e3779b1)) >>> 0) % BUILD_ORDERS.length]);
   }
 
   private manageUnits(world: World) {
@@ -119,19 +141,20 @@ export class AIController {
     if (staging) this.rallyTo(world, staging);
     if (this.wave) this.retreatDamaged(world, staging);
 
-    // Defend: enemies near any of our buildings.
+    // Defend: enemies near any of our buildings or harvesters.
     const threat = this.findThreat(world);
     const home = army.filter((e) => !this.wave?.ids.has(e.id));
     if (threat) {
-      const idle = home.filter((e) => e.order.t === 'idle' || e.order.t === 'move');
-      if (idle.length) {
-        this.send({
-          t: 'attackMove',
-          ids: idle.map((e) => e.id),
-          x: Math.floor(threat.x / TILE),
-          y: Math.floor(threat.y / TILE),
-        });
+      const tx = Math.floor(threat.unit.x / TILE);
+      const ty = Math.floor(threat.unit.y / TILE);
+      // The base is outnumbered: bring the wave home to help. It is sent once; after that its members count as home units.
+      if (this.wave && threat.count >= RECALL_THREAT && home.length < threat.count) {
+        const recalled = this.waveMembers(world);
+        this.wave = null;
+        if (recalled.length) this.send({ t: 'attackMove', ids: recalled.map((e) => e.id), x: tx, y: ty });
       }
+      const idle = home.filter((e) => e.order.t === 'idle' || e.order.t === 'move');
+      if (idle.length) this.send({ t: 'attackMove', ids: idle.map((e) => e.id), x: tx, y: ty });
       return;
     }
 
@@ -289,18 +312,28 @@ export class AIController {
     if (ids.length) this.send({ t: 'rally', ids, x: at.x, y: at.y });
   }
 
-  /** Enemy units within 10 tiles of one of our buildings. */
-  private findThreat(world: World): Entity | null {
+  /** Enemy units within 10 tiles of one of our buildings, or armed ones near our harvesters, and how many there are. */
+  private findThreat(world: World): { unit: Entity; count: number } | null {
     const buildings: Entity[] = [];
-    for (const e of world.entities.values()) if (e.owner === this.player && e.kind === 'building') buildings.push(e);
+    const harvesters: Entity[] = [];
+    for (const e of world.entities.values()) {
+      if (e.owner !== this.player) continue;
+      if (e.kind === 'building') buildings.push(e);
+      else if (e.type === 'harvester') harvesters.push(e);
+    }
     const r2 = (TILE * 10) ** 2;
+    const h2 = (TILE * HARVESTER_GUARD) ** 2;
+    let first: Entity | null = null;
+    let count = 0;
     for (const e of world.entities.values()) {
       if (areAllies(world, e.owner, this.player) || e.kind !== 'unit') continue;
-      for (const b of buildings) {
-        if ((e.x - b.x) ** 2 + (e.y - b.y) ** 2 < r2) return e;
-      }
+      const atBase = buildings.some((b) => (e.x - b.x) ** 2 + (e.y - b.y) ** 2 < r2);
+      const atHarvester = !atBase && !!weaponOf(e) && harvesters.some((h) => (e.x - h.x) ** 2 + (e.y - h.y) ** 2 < h2);
+      if (!atBase && !atHarvester) continue;
+      first ??= e;
+      count++;
     }
-    return null;
+    return first ? { unit: first, count } : null;
   }
 
   /**
