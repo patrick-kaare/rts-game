@@ -342,10 +342,19 @@ export class Lobby {
       if ((s.kind === 'human' && !s.spectator) || s.kind === 'ai') r.append(this.teamPicker(i, s.team, isHost || i === you));
       list.append(r);
     });
-    box.append(list);
-    if (this.online && this.spectators.length) box.append(p(`Spectators: ${this.spectators.join(', ')}`, 'hint'));
-
-    box.append(h('h2', 'Rules'), this.rulesPanel(isHost));
+    // Rules on the left, slots on the right; stacks on narrow screens.
+    const rulesCol = document.createElement('div');
+    rulesCol.className = 'room-col rules-col';
+    rulesCol.append(h('h2', 'Rules'), this.rulesPanel(isHost));
+    const slotsCol = document.createElement('div');
+    slotsCol.className = 'room-col slots-col';
+    slotsCol.append(h('h2', 'Players'), list);
+    if (this.online && this.spectators.length) slotsCol.append(p(`Spectators: ${this.spectators.join(', ')}`, 'hint'));
+    const cols = document.createElement('div');
+    cols.className = 'room-cols';
+    cols.append(rulesCol, slotsCol);
+    box.classList.add('wide');
+    box.append(cols);
     // Only online, next to the box. Left alone if already shown, so the input keeps its focus.
     this.chat.show(!!net);
 

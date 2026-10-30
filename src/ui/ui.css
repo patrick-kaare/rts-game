@@ -525,17 +525,46 @@ body {
   letter-spacing: 0.2em;
 }
 
+.lobby-box.wide {
+  max-width: 820px;
+}
+
+.room-cols {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.room-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 16px 16px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.rules-col {
+  flex: 0 0 330px;
+}
+
+.slots-col {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
 .slots {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
 .slot {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 34px;
+  min-height: 35px;
 }
 
 .slot i {
@@ -570,9 +599,13 @@ body {
 
 .rules {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: max-content minmax(0, 1fr);
   gap: 6px 12px;
   align-items: center;
+}
+
+.rules > label {
+  white-space: nowrap;
 }
 
 .rules > span {
