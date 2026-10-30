@@ -132,6 +132,22 @@ describe('rich terrain', () => {
   });
 });
 
+describe('ore fairness', () => {
+  it.each(TERRAIN_OPTIONS)('gives opposite bases identical ore on even player counts (%s)', (style) => {
+    for (const players of [2, 4, 6]) {
+      for (let seed = 1; seed <= 10; seed++) {
+        const { w, h, ore, gems } = generateMap(seed * 17, players, 'auto', style, true);
+        let differ = 0;
+        for (let i = 0; i < w * h; i++) {
+          const j = w * h - 1 - i;
+          if (ore[i] !== ore[j] || gems[i] !== gems[j]) differ++;
+        }
+        expect(differ, `${style} ${players}p seed ${seed * 17}`).toBe(0);
+      }
+    }
+  });
+});
+
 describe('gem fields', () => {
   it.each(TERRAIN_OPTIONS)('only change ore amounts, sit on ore and are mirrored (%s)', (style) => {
     for (const players of [2, 4, 3]) {

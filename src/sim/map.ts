@@ -234,23 +234,33 @@ function tryGenerate(seed: number, players: number, w: number, style: TerrainRul
   }
 
   // Gem fields get a core of gems: half the amount at double the value, so a field holds the same credits but pays out faster. The rng is drawn the same either way, so the gem setting never changes the map layout.
-  const oreField = (cx: number, cy: number, r: number, lo: number, hi: number, gemCore = false) =>
+  // On mirrored maps a field is placed once and copied to the opposite side with the same amounts, so no base gets richer ore than its opponent.
+  const oreField = (cx: number, cy: number, r: number, lo: number, hi: number, gemCore = false) => {
+    const drawn = new Map<number, [number, number]>();
     blob(
       cx,
       cy,
       r,
       (i) => {
         terrain[i] = Terrain.Grass;
-        const amount = randInt(rng, lo, hi);
-        const gem = withGems && gemCore && dist((i % w) + 0.5 - cx, Math.floor(i / w) + 0.5 - cy) < r * 0.5;
-        ore[i] = gem ? Math.floor(amount / 2) : amount;
-        gems[i] = gem ? 1 : 0;
+        // A tile and its mirror share one slot; the first call is the tile nearest the field.
+        const key = Math.min(i, w * h - 1 - i);
+        let tile = mirror ? drawn.get(key) : undefined;
+        if (!tile) {
+          const amount = randInt(rng, lo, hi);
+          const gem = withGems && gemCore && dist((i % w) + 0.5 - cx, Math.floor(i / w) + 0.5 - cy) < r * 0.5;
+          tile = [gem ? Math.floor(amount / 2) : amount, gem ? 1 : 0];
+          if (mirror) drawn.set(key, tile);
+        }
+        ore[i] = tile[0];
+        gems[i] = tile[1];
       },
-      false,
+      mirror,
     );
+  };
 
   // Two home fields per base, either side of the direction towards the centre.
-  for (const s of startCenters) {
+  for (const s of mirror ? ring.slice(0, half) : startCenters) {
     const dx = mid - s.x;
     const dy = mid - s.y;
     const d = dist(dx, dy) || 1;
@@ -261,7 +271,7 @@ function tryGenerate(seed: number, players: number, w: number, style: TerrainRul
   }
 
   // Contested fields halfway between neighbouring starts, pulled towards the centre, and one in the middle.
-  for (let k = 0; k < players; k++) {
+  for (let k = 0; k < half; k++) {
     const p = between(k);
     const cx = p.x + 0.5 + (mid - p.x - 0.5) * 0.3;
     const cy = p.y + 0.5 + (mid - p.y - 0.5) * 0.3;
