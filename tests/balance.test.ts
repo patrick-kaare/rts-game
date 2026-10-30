@@ -96,5 +96,6 @@ describe('AI matches', () => {
     const ratio = army[0] / army[1];
     expect(ratio, `army value ${army}`).toBeGreaterThan(0.7);
     expect(ratio, `army value ${army}`).toBeLessThan(1.4);
-  });
+    // 12 full AI sims take ~16s here and over 30s on the deploy box.
+  }, 120_000);
 });
